@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Info Screen</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #101216;
+            color: #ffffff;
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            padding: 32px;
+        }
+
+        .card {
+            background: #1b1f27;
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        #clock {
+            font-size: 6rem;
+            font-weight: bold;
+        }
+
+        #date {
+            color: #aab2c0;
+            font-size: 1.5rem;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        #events {
+            display: grid;
+            gap: 12px;
+        }
+
+        .event {
+            border-left: 4px solid #4f8cff;
+            padding-left: 12px;
+        }
+
+        .event-time {
+            color: #aab2c0;
+            font-size: 0.9rem;
+        }
+
+        button {
+            background: #4f8cff;
+            border: 0;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            padding: 12px 18px;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 800px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+
+            #clock {
+                font-size: 4rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <section class="card">
+        <div id="clock">--:--</div>
+        <div id="date">Loading date...</div>
+    </section>
+
+    <section class="card">
+        <h2>Weather</h2>
+        <div id="weather">Loading weather...</div>
+    </section>
+
+    <section class="card">
+        <h2>Google Calendar</h2>
+        <button id="authorize-button">Authorize Calendar</button>
+        <div id="events"></div>
+    </section>
+</main>
+
+<script>
+    const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID";
+    const API_KEY = "YOUR_GOOGLE_API_KEY";
+    const CALENDAR_ID = "primary";
+    const WEATHER_LATITUDE = "58.14574000943632";
+    const WEATHER_LONGITUDE = "8.06137337891726";
+
+    const DISCOVERY_DOC =
+        "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest";
+
+    const SCOPES =
+        "https://www.googleapis.com/auth/calendar.readonly";
+
+    let tokenClient;
+    let gapiReady = false;
+    let gisReady = false;
+
+    function updateClock() {
+        const now = new Date();
+
+        document.getElementById("clock").textContent =
+            now.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit"
+            });
+
+        document.getElementById("date").textContent =
+            now.toLocaleDateString([], {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric"
+            });
+    }
+
+    async function loadWeather() {
+        const url =
+            `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LATITUDE}` +
+            `&longitude=${WEATHER_LONGITUDE}&current=temperature_2m,weather_code`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        document.getElementById("weather").textContent =
+            `${data.current.temperature_2m}°C`;
+    }
+
+    function initializeGapiClient() {
+        gapi.client.init({
+            apiKey: API_KEY,
+            discoveryDocs: [DISCOVERY_DOC]
+        }).then(() => {
+            gapiReady = true;
+            maybeShowAuthorizeButton();
+        });
+    }
+
+    function gisLoaded() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: ""
+        });
+
+        gisReady = true;
+        maybeShowAuthorizeButton();
+    }
+
+    function maybeShowAuthorizeButton() {
+        if (gapiReady && gisReady) {
+            document.getElementById("authorize-button").style.display = "block";
+        }
+    }
+
+    function authorizeCalendar() {
+        tokenClient.callback = async response => {
+            if (response.error) {
+                document.getElementById("events").textContent =
+                    "Calendar authorization failed.";
+                return;
+            }
+
+            await loadCalendarEvents();
+        };
+
+        tokenClient.requestAccessToken({
+            prompt: "consent"
+        });
+    }
+
+    async function loadCalendarEvents() {
+        const now = new Date().toISOString();
+        const result = await gapi.client.calendar.events.list({
+            calendarId: CALENDAR_ID,
+            timeMin: now,
+            showDeleted: false,
+            singleEvents: true,
+            maxResults: 6,
+            orderBy: "startTime"
+        });
+
+        const events = result.result.items || [];
+        const container = document.getElementById("events");
+        container.innerHTML = "";
+
+        if (events.length === 0) {
+            container.textContent = "No upcoming events.";
+            return;
+        }
+
+        for (const event of events) {
+            const item = document.createElement("div");
+            item.className = "event";
+
+            const start = event.start.dateTime || event.start.date;
+            const time = new Date(start).toLocaleString();
+
+            item.innerHTML = `
+          <strong>${event.summary || "Untitled event"}</strong>
+          <div class="event-time">${time}</div>
+        `;
+
+            container.appendChild(item);
+        }
+    }
+
+    document
+        .getElementById("authorize-button")
+        .addEventListener("click", authorizeCalendar);
+
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    loadWeather().catch(() => {
+        document.getElementById("weather").textContent =
+            "Weather unavailable.";
+    });
+
+    setInterval(loadWeather, 15 * 60 * 1000);
+</script>
+
+<script
+        async
+        defer
+        src="https://apis.google.com/js/api.js"
+        onload="gapi.load('client', initializeGapiClient)">
+</script>
+
+<script
+        async
+        defer
+        src="https://accounts.google.com/gsi/client"
+        onload="gisLoaded()">
+</script>
+</body>
+</html>
