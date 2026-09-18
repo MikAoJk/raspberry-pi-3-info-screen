@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="no">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,8 +30,12 @@
             padding: 24px;
         }
 
+        .calendar-card {
+            grid-column: 1 / -1;
+        }
+
         #clock {
-            font-size: 6rem;
+            font-size: 8rem;
             font-weight: bold;
         }
 
@@ -46,17 +50,101 @@
 
         #events {
             display: grid;
-            gap: 12px;
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .week-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+        }
+
+        .day-group {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .day-header {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #dfe7f4;
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        }
+
+        .day-events {
+            display: grid;
+            gap: 10px;
+        }
+
+        .no-events {
+            color: #aab2c0;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+
+        #weather-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+        }
+
+        #weather-icon {
+            font-size: 2rem;
+        }
+
+        #hourly-weather {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .forecast-item {
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 8px 6px;
+            text-align: center;
+        }
+
+        .forecast-item .icon {
+            font-size: 1.5rem;
+            margin-bottom: 4px;
+        }
+
+        .forecast-item .time {
+            color: #aab2c0;
+            font-size: 0.8rem;
+        }
+
+        .forecast-item .temp {
+            font-size: 1.1rem;
+            font-weight: bold;
         }
 
         .event {
-            border-left: 4px solid #4f8cff;
-            padding-left: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-left: 6px solid #4f8cff;
+            border-radius: 12px;
+            padding: 16px 18px;
+            display: grid;
+            gap: 6px;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+
+        .event strong {
+            font-size: 1.2rem;
+            line-height: 1.3;
         }
 
         .event-time {
             color: #aab2c0;
-            font-size: 0.9rem;
+            font-size: 1rem;
         }
 
         button {
@@ -84,37 +172,45 @@
 <main>
     <section class="card">
         <div id="clock">--:--</div>
-        <div id="date">Loading date...</div>
+        <div id="date">Laster Klokke...</div>
     </section>
 
     <section class="card">
-        <h2>Weather</h2>
-        <div id="weather">Loading weather...</div>
+        <h2>Vær</h2>
+        <div id="weather-summary">
+            <div id="weather-icon">--</div>
+            <div id="weather">Laster været...</div>
+        </div>
+        <div id="hourly-weather"></div>
     </section>
 
-    <section class="card">
-        <h2>Google Calendar</h2>
-        <button id="authorize-button">Authorize Calendar</button>
+    <section class="card calendar-card">
+        <h2>Google Kalender</h2>
+        <button id="authorize-button">Authorize Kalender</button>
         <div id="events"></div>
     </section>
 </main>
 
 <script>
-    const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID";
-    const API_KEY = "YOUR_GOOGLE_API_KEY";
-    const CALENDAR_ID = "primary";
+    const CLIENT_ID = "186776332232-c9fd4t5oslulfdrin84obb6pgogpaktu.apps.googleusercontent.com";
+    const CALENDAR_ID = "f2469c230e7c5d747c481a395b71f16b70f6b4c8d20d2bcb4348bc4e34eb814f@group.calendar.google.com";
     const WEATHER_LATITUDE = "58.14574000943632";
     const WEATHER_LONGITUDE = "8.06137337891726";
+    const CALENDAR_EVENTS_CACHE_KEY = "calendar-events-cache";
 
     const DISCOVERY_DOC =
         "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest";
 
-    const SCOPES =
-        "https://www.googleapis.com/auth/calendar.readonly";
+    const SCOPES = [
+        "https://www.googleapis.com/auth/calendar.calendars.readonly",
+        "https://www.googleapis.com/auth/calendar.events.owned.readonly",
+        "https://www.googleapis.com/auth/calendar.events.readonly"
+    ].join(" ");
 
     let tokenClient;
     let gapiReady = false;
     let gisReady = false;
+    let calendarRefreshTimer = null;
 
     function updateClock() {
         const now = new Date();
@@ -127,7 +223,7 @@
             });
 
         document.getElementById("date").textContent =
-            now.toLocaleDateString([], {
+            now.toLocaleDateString("no-NO", {
                 weekday: "long",
                 year: "numeric",
                 month: "long",
@@ -135,21 +231,95 @@
             });
     }
 
+    const WEATHER_ICONS = {
+        clearsky_day: "☀️",
+        clearsky_night: "🌙",
+        fair_day: "🌤️",
+        fair_night: "🌤️",
+        partlycloudy_day: "⛅",
+        partlycloudy_night: "⛅",
+        cloudy: "☁️",
+        fog: "🌫️",
+        lightrain: "🌦️",
+        rain: "🌧️",
+        heavyrain: "🌧️",
+        rainshowers_day: "🌦️",
+        rainshowers_night: "🌦️",
+        heavyrainshowers_day: "⛈️",
+        heavyrainshowers_night: "⛈️",
+        lightsnow: "🌨️",
+        snow: "❄️",
+        heavysnow: "❄️",
+        sleet: "🌧️",
+        thunderstorms: "⛈️"
+    };
+
+    function getWeatherIcon(symbolCode) {
+        if (!symbolCode) {
+            return "☀️";
+        }
+
+        return WEATHER_ICONS[symbolCode] || "🌤️";
+    }
+
+    function renderHourlyWeather(timeseries) {
+        const container = document.getElementById("hourly-weather");
+        container.innerHTML = "";
+
+        for (const entry of timeseries.slice(0, 24)) {
+            const item = document.createElement("div");
+            item.className = "forecast-item";
+
+            const time = new Date(entry.time);
+            const hour = time.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            });
+
+            const temp = entry.data.instant.details.air_temperature;
+            const symbolCode = entry.data.next_1_hours?.summary?.symbol_code || "clearsky_day";
+
+            item.innerHTML = `
+                <div class="icon">${getWeatherIcon(symbolCode)}</div>
+                <div class="time">${hour}</div>
+                <div class="temp">${temp}°</div>
+            `;
+
+            container.appendChild(item);
+        }
+    }
+
     async function loadWeather() {
         const url =
-            `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LATITUDE}` +
-            `&longitude=${WEATHER_LONGITUDE}&current=temperature_2m,weather_code`;
+            `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${WEATHER_LATITUDE}` +
+            `&lon=${WEATHER_LONGITUDE}`;
 
         const response = await fetch(url);
-        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(`Weather request failed: ${response.status}`);
+        }
 
+        const data = await response.json();
+        const timeseries = data.properties.timeseries || [];
+        const current = timeseries[0];
+
+        if (!current) {
+            throw new Error("No weather data available");
+        }
+
+        const temperature = current.data.instant.details.air_temperature;
+        const symbolCode = current.data.next_1_hours?.summary?.symbol_code || "clearsky_day";
+
+        document.getElementById("weather-icon").textContent = getWeatherIcon(symbolCode);
         document.getElementById("weather").textContent =
-            `${data.current.temperature_2m}°C`;
+            `Nå: ${temperature}°C`;
+
+        renderHourlyWeather(timeseries);
     }
 
     function initializeGapiClient() {
         gapi.client.init({
-            apiKey: API_KEY,
             discoveryDocs: [DISCOVERY_DOC]
         }).then(() => {
             gapiReady = true;
@@ -169,9 +339,54 @@
     }
 
     function maybeShowAuthorizeButton() {
-        if (gapiReady && gisReady) {
-            document.getElementById("authorize-button").style.display = "block";
+        if (!gapiReady || !gisReady) {
+            return;
         }
+
+        const hasCachedEvents = restoreCalendarEvents().length > 0;
+        if (hasCachedEvents) {
+            hideAuthorizeButton();
+            startCalendarAutoRefresh();
+            return;
+        }
+
+        setAuthorizeButtonVisible(true);
+    }
+
+    function setAuthorizeButtonVisible(visible) {
+        document.getElementById("authorize-button").style.display = visible ? "block" : "none";
+    }
+
+    function hideAuthorizeButton() {
+        setAuthorizeButtonVisible(false);
+    }
+
+    function startCalendarAutoRefresh() {
+        if (calendarRefreshTimer) {
+            clearInterval(calendarRefreshTimer);
+        }
+
+        calendarRefreshTimer = setInterval(async () => {
+            if (!gapiReady || !gisReady || !tokenClient) {
+                return;
+            }
+
+            if (document.getElementById("authorize-button").style.display === "block") {
+                return;
+            }
+
+            tokenClient.callback = async response => {
+                if (!response.error) {
+                    await loadCalendarEvents();
+                }
+            };
+
+            try {
+                tokenClient.requestAccessToken({ prompt: "none" });
+            } catch (error) {
+                console.warn("Background calendar refresh skipped:", error);
+            }
+        }, 15 * 60 * 1000);
     }
 
     function authorizeCalendar() {
@@ -190,40 +405,142 @@
         });
     }
 
+    function buildDateRange(daysAhead) {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+
+        const days = [];
+        for (let i = 0; i < daysAhead; i++) {
+            const date = new Date(start);
+            date.setDate(start.getDate() + i);
+            days.push(date);
+        }
+
+        return days;
+    }
+
+    function renderCalendarEvents(events) {
+        const days = buildDateRange(7);
+        const container = document.getElementById("events");
+        container.innerHTML = "";
+
+        const weekGrid = document.createElement("div");
+        weekGrid.className = "week-grid";
+
+        const eventsByDay = new Map();
+        for (const event of events) {
+            const start = event.start.dateTime || event.start.date;
+            const eventDate = new Date(start);
+            const dayKey = eventDate.toISOString().slice(0, 10);
+            if (!eventsByDay.has(dayKey)) {
+                eventsByDay.set(dayKey, []);
+            }
+            eventsByDay.get(dayKey).push(event);
+        }
+
+        for (const day of days) {
+            const key = day.toISOString().slice(0, 10);
+            const group = document.createElement("div");
+            group.className = "day-group";
+
+            const header = document.createElement("div");
+            header.className = "day-header";
+            header.textContent = day.toLocaleDateString("no-NO", {
+                weekday: "long",
+                day: "2-digit",
+                month: "2-digit"
+            });
+            group.appendChild(header);
+
+            const dayEvents = document.createElement("div");
+            dayEvents.className = "day-events";
+
+            const items = eventsByDay.get(key) || [];
+            if (items.length === 0) {
+                const empty = document.createElement("div");
+                empty.className = "no-events";
+                empty.textContent = "Ingen hendelser";
+                dayEvents.appendChild(empty);
+            } else {
+                for (const event of items) {
+                    const item = document.createElement("div");
+                    item.className = "event";
+
+                    const start = event.start.dateTime || event.start.date;
+                    const time = new Date(start).toLocaleTimeString("no-NO", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                        timeZone: "Europe/Oslo"
+                    });
+
+                    item.innerHTML = `
+                        <strong>${event.summary || "Untitled event"}</strong>
+                        <div class="event-time">${time}</div>
+                    `;
+
+                    dayEvents.appendChild(item);
+                }
+            }
+
+            group.appendChild(dayEvents);
+            weekGrid.appendChild(group);
+        }
+
+        container.appendChild(weekGrid);
+    }
+
+    function saveCalendarEvents(events) {
+        try {
+            localStorage.setItem(CALENDAR_EVENTS_CACHE_KEY, JSON.stringify(events));
+        } catch (error) {
+            console.warn("Could not persist calendar events:", error);
+        }
+    }
+
+    function restoreCalendarEvents() {
+        try {
+            const cached = localStorage.getItem(CALENDAR_EVENTS_CACHE_KEY);
+            if (!cached) {
+                return [];
+            }
+
+            const parsed = JSON.parse(cached);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+            console.warn("Could not restore calendar events:", error);
+            return [];
+        }
+    }
+
     async function loadCalendarEvents() {
-        const now = new Date().toISOString();
+        hideAuthorizeButton();
+
+        const days = buildDateRange(7);
+        const timeMin = new Date(days[0].setHours(0, 0, 0, 0)).toISOString();
+        const timeMax = new Date(days[days.length - 1].setHours(23, 59, 59, 999)).toISOString();
+
         const result = await gapi.client.calendar.events.list({
             calendarId: CALENDAR_ID,
-            timeMin: now,
+            timeMin,
+            timeMax,
             showDeleted: false,
             singleEvents: true,
-            maxResults: 6,
+            maxResults: 100,
             orderBy: "startTime"
         });
 
         const events = result.result.items || [];
-        const container = document.getElementById("events");
-        container.innerHTML = "";
+        saveCalendarEvents(events);
+        renderCalendarEvents(events);
+        startCalendarAutoRefresh();
+    }
 
-        if (events.length === 0) {
-            container.textContent = "No upcoming events.";
-            return;
-        }
-
-        for (const event of events) {
-            const item = document.createElement("div");
-            item.className = "event";
-
-            const start = event.start.dateTime || event.start.date;
-            const time = new Date(start).toLocaleString();
-
-            item.innerHTML = `
-          <strong>${event.summary || "Untitled event"}</strong>
-          <div class="event-time">${time}</div>
-        `;
-
-            container.appendChild(item);
-        }
+    const restoredEvents = restoreCalendarEvents();
+    if (restoredEvents.length > 0) {
+        renderCalendarEvents(restoredEvents);
+        hideAuthorizeButton();
+        startCalendarAutoRefresh();
     }
 
     document
