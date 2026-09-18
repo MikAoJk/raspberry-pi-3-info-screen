@@ -3,6 +3,7 @@ This is a personal setup that I use home with Raspberry Pi 3 to get some info we
 
 # Build and run dockerimage
 ``` bash
+cd /home/joakim/raspberry-pi-3-info-screen
 docker build -t info-screen .
 docker rm -f info-screen 2>/dev/null || true
 docker run -d \
@@ -18,11 +19,8 @@ http://localhost:8080
 
 # Launch in fullscreen kiosk mode on the Raspberry Pi 3
 ``` bash
-chromium \
+firefox \
 --kiosk \
---noerrdialogs \
---disable-infobars \
---disable-session-crashed-bubble \
 http://localhost:8080
 ```
 
