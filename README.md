@@ -67,5 +67,5 @@ firefox \
 http://localhost:8080
 ```
 
-### Example output from my calender
+### Example output from my calendar
 ![screenshot.png](screenshot.png)

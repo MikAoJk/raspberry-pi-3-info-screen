@@ -28,12 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(root))
         .route("/oauth/callback", get(google_oauth_callback))
-        .route("/api/weather", get(get_weather))
-        .route("/api/calendar", get(get_calendar))
-        .route("/api/dashboard", get(get_dashboard))
         .route("/api/oauth/google/config", get(get_google_oauth_config))
         .route("/api/oauth/google/token", post(store_google_token))
         .route("/api/oauth/google/refresh", post(refresh_google_token))
+        .route("/api/dashboard", get(get_dashboard))
         .with_state(application_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -121,7 +119,7 @@ impl CalendarCache {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WeatherSnapshot {
-    summary: String,
+    description: String,
     icon: String,
     current_temperature_c: f64,
     hourly: Vec<HourlyWeather>,
@@ -150,7 +148,7 @@ struct CalendarDay {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct CalendarEvent {
-    summary: String,
+    title: String,
     start: String,
     end: Option<String>,
 }
@@ -215,6 +213,11 @@ async fn root() -> Html<&'static str> {
     Html(html_in_str)
 }
 
+fn string_to_static_str(s: String) -> &'static str {
+    s.leak()
+}
+
+
 async fn get_google_oauth_config(State(state): State<ApplicationState>) -> Result<Json<GoogleOAuthConfigResponse>, (StatusCode, String)> {
     let client_id = state.config.google_client_id.clone();
     let redirect_uri = state.config.google_redirect_uri.clone();
@@ -258,57 +261,6 @@ async fn google_oauth_callback(
     "#;
 
     Ok(Html(html.to_string()))
-}
-
-fn string_to_static_str(s: String) -> &'static str {
-    s.leak()
-}
-
-
-async fn get_weather(State(state): State<ApplicationState>) -> Result<Json<WeatherSnapshot>, (StatusCode, String)> {
-    let cached_weather = {
-        let cache = state.weather_cache.lock().await;
-        cache.clone().filter(|entry| entry.is_fresh(WEATHER_CACHE_TTL))
-    };
-
-    if let Some(cached) = cached_weather {
-        return Ok(Json(cached.payload));
-    }
-
-    let payload = fetch_weather_from_met(&state).await.map_err(|error| {
-        (StatusCode::BAD_GATEWAY, format!("Weather request failed: {error}"))
-    })?;
-
-    let cache_entry = WeatherCache {
-        cached_at_unix: now_unix_seconds(),
-        payload: payload.clone(),
-    };
-
-    *state.weather_cache.lock().await = Some(cache_entry);
-    Ok(Json(payload))
-}
-
-async fn get_calendar(State(state): State<ApplicationState>) -> Result<Json<CalendarAggregation>, (StatusCode, String)> {
-    let cached_calendar = {
-        let cache = state.calendar_cache.lock().await;
-        cache.clone().filter(|entry| entry.is_fresh(CALENDAR_CACHE_TTL))
-    };
-
-    if let Some(cached) = cached_calendar {
-        return Ok(Json(cached.payload));
-    }
-
-    let payload = fetch_calendar_aggregation(&state).await.map_err(|error| {
-        (StatusCode::BAD_GATEWAY, format!("Calendar request failed: {error}"))
-    })?;
-
-    let cache_entry = CalendarCache {
-        cached_at_unix: now_unix_seconds(),
-        payload: payload.clone(),
-    };
-
-    *state.calendar_cache.lock().await = Some(cache_entry);
-    Ok(Json(payload))
 }
 
 async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
@@ -360,7 +312,7 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
     };
 
     let calendar_id = state.config.calendar_id.clone();
-    let start = chrono::Utc::now().with_timezone(&chrono::Utc).date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let start = Utc::now().with_timezone(&Utc).date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
     let end = start + chrono::Duration::days(7);
     let response = state.http_client
         .get(&format!("https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"))
@@ -434,7 +386,7 @@ fn build_calendar_days(items: Vec<GoogleCalendarItem>) -> Vec<CalendarDay> {
 
         let end_text = item.end.and_then(|value| value.date_time.or(value.date));
         let event = CalendarEvent {
-            summary: item.summary.unwrap_or_else(|| "Untitled event".to_string()),
+            title: item.summary.unwrap_or_else(|| "Untitled event".to_string()),
             start: start_text,
             end: end_text,
         };
@@ -442,7 +394,7 @@ fn build_calendar_days(items: Vec<GoogleCalendarItem>) -> Vec<CalendarDay> {
         events_by_day.entry(date_key).or_default().push(event);
     }
 
-    let start = chrono::Utc::now().date_naive();
+    let start = Utc::now().date_naive();
     let mut days = Vec::new();
     for offset in 0..7 {
         let date = start + chrono::Duration::days(offset);
@@ -536,7 +488,7 @@ async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnaps
         .collect();
 
     Ok(WeatherSnapshot {
-        summary: format!("Nå: {temperature}°C"),
+        description: format!("Nå: {temperature}°C"),
         icon: resolve_weather_icon(symbol),
         current_temperature_c: temperature,
         hourly,
@@ -713,4 +665,3 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
 fn now_unix_seconds() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
-

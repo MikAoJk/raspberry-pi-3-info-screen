@@ -260,7 +260,7 @@
 
     function renderWeather(snapshot) {
         document.getElementById("weather-icon").textContent = snapshot.icon || "☀️";
-        document.getElementById("weather").textContent = snapshot.summary || "Nå: --°C";
+        document.getElementById("weather").textContent = snapshot.description || "Nå: --°C";
 
         const container = document.getElementById("hourly-weather");
         container.innerHTML = "";
@@ -340,7 +340,7 @@
                     }) : "Hele dagen";
 
                     item.innerHTML = `
-                        <strong>${event.summary || "Untitled event"}</strong>
+                        <strong>${event.title || "Untitled event"}</strong>
                         <div class="event-time">${time}</div>
                     `;
 
