@@ -54,7 +54,11 @@ docker build -t infoscreeen .
 
 #### Running a docker image
 ``` bash
-docker run --rm -it -p 8080:8080 infoscreeen
+docker run -d \
+--name infoscreeen \
+--restart unless-stopped \
+-p 8080:8080 \
+infoscreeen
 ```
 Avaiable here at
 http://localhost:8080
