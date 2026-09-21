@@ -1,5 +1,5 @@
 # Raspberry Pi 3 info screen
-This is a personal setup that I use home with Raspberry Pi 3 to get some info we need on a day-to-day basis
+This is a personal setup that I use at home, with my Raspberry Pi 3, to get some info we need on a day-to-day basis
 
 ### Prerequisites
 Make sure you have the rust installed using this command:
