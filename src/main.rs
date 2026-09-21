@@ -1,6 +1,6 @@
 mod log;
 
-use std::{env, fs, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{error,env, fs, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
 use axum::{
     extract::{Query, State},
@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use ::log::info;
+use ::log::{error, info};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -20,7 +20,7 @@ const WEATHER_CACHE_TTL: u64 = 15 * 60;
 const CALENDAR_CACHE_TTL: u64 = 15 * 60;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn error::Error>> {
     init_log4rs();
 
     let application_state = ApplicationState::new();
@@ -99,8 +99,7 @@ struct WeatherCache {
 
 impl WeatherCache {
     fn is_fresh(&self, ttl_seconds: u64) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-        now.saturating_sub(self.cached_at_unix) < ttl_seconds
+        is_cache_fresh(self.cached_at_unix, ttl_seconds)
     }
 }
 
@@ -112,8 +111,7 @@ struct CalendarCache {
 
 impl CalendarCache {
     fn is_fresh(&self, ttl_seconds: u64) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-        now.saturating_sub(self.cached_at_unix) < ttl_seconds
+        is_cache_fresh(self.cached_at_unix, ttl_seconds)
     }
 }
 
@@ -223,6 +221,7 @@ async fn get_google_oauth_config(State(state): State<ApplicationState>) -> Resul
     let redirect_uri = state.config.google_redirect_uri.clone();
 
     if !state.config.has_google_oauth_config() {
+        error!("Google OAuth is not configured on the server.");
         return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
     }
 
@@ -238,6 +237,7 @@ async fn google_oauth_callback(
     Query(query): Query<GoogleOAuthCallbackQuery>,
 ) -> Result<Html<String>, (StatusCode, String)> {
     if let Some(error) = query.error {
+        error!("Google OAuth denied: {error}");
         return Err((StatusCode::BAD_REQUEST, format!("Google OAuth denied: {error}")));
     }
 
@@ -629,6 +629,7 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
     let client_secret = state.config.google_client_secret.clone();
 
     if !state.config.has_google_oauth_config() {
+        error!("Google OAuth tokens are not configured on the server.");
         return Err("Google OAuth is not configured on the server.".to_string());
     }
 
@@ -664,4 +665,8 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
 
 fn now_unix_seconds() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
+    now_unix_seconds().saturating_sub(cached_at_unix) < ttl_seconds
 }
