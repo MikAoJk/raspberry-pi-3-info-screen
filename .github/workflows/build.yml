@@ -1,0 +1,48 @@
+name: build
+on:
+  push
+
+permissions:
+  packages: "write"
+  contents: "write"
+  id-token: "write"
+  security-events: "write"
+  checks: "write"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+  dependabot-build:
+    if: github.actor == 'dependabot[bot]'
+    name: Dependabot-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build application
+        run: cargo build
+  build-push:
+    if: github.actor != 'dependabot[bot]'
+    name: Build and push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

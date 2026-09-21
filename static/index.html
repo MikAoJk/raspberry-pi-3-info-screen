@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Info Screen</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #101216;
+            color: #ffffff;
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            padding: 32px;
+        }
+
+        .card {
+            background: #1b1f27;
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .calendar-card {
+            grid-column: 1 / -1;
+        }
+
+        #clock {
+            font-size: 8rem;
+            font-weight: bold;
+        }
+
+        #date {
+            color: #aab2c0;
+            font-size: 1.5rem;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        #events {
+            display: grid;
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .week-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .day-group {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .day-header {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #dfe7f4;
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        }
+
+        .day-events {
+            display: grid;
+            gap: 10px;
+        }
+
+        .no-events {
+            color: #aab2c0;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+
+        #weather-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+        }
+
+        #weather-icon {
+            font-size: 2rem;
+        }
+
+        #hourly-weather {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .forecast-item {
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 8px 6px;
+            text-align: center;
+        }
+
+        .forecast-item .icon {
+            font-size: 1.5rem;
+            margin-bottom: 4px;
+        }
+
+        .forecast-item .time {
+            color: #aab2c0;
+            font-size: 0.8rem;
+        }
+
+        .forecast-item .temp {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .event {
+            background: rgba(255, 255, 255, 0.04);
+            border-left: 6px solid #4f8cff;
+            border-radius: 12px;
+            padding: 16px 18px;
+            display: grid;
+            gap: 6px;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+
+        .event strong {
+            font-size: 1.2rem;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+        }
+
+        .event-time {
+            color: #aab2c0;
+            font-size: 1rem;
+        }
+
+        .auth-prompt {
+            display: grid;
+            gap: 14px;
+            padding: 18px;
+            border-radius: 12px;
+            background: rgba(79, 140, 255, 0.08);
+            border: 1px solid rgba(79, 140, 255, 0.2);
+        }
+
+        .auth-prompt p {
+            margin: 0;
+            color: #dfe7f4;
+            line-height: 1.5;
+        }
+
+        button {
+            background: #4f8cff;
+            border: 0;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            padding: 12px 18px;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 1200px) {
+            main {
+                gap: 16px;
+                padding: 20px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .week-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 12px;
+            }
+
+            .day-group {
+                padding: 14px;
+            }
+
+            .event {
+                padding: 14px 16px;
+            }
+        }
+
+        @media (max-width: 800px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+
+            #clock {
+                font-size: 4rem;
+            }
+
+            .week-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .event strong {
+                font-size: 1.1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <section class="card">
+        <div id="clock">--:--</div>
+        <div id="date">Laster Klokke...</div>
+    </section>
+
+    <section class="card">
+        <h2>Vær</h2>
+        <div id="weather-summary">
+            <div id="weather-icon">--</div>
+            <div id="weather">Laster været...</div>
+        </div>
+        <div id="hourly-weather"></div>
+    </section>
+
+    <section class="card calendar-card">
+        <h2>Google Kalender</h2>
+        <div id="events">Laster kalender...</div>
+    </section>
+</main>
+
+<script>
+    function updateClock() {
+        const now = new Date();
+
+        document.getElementById("clock").textContent =
+            now.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            });
+
+        document.getElementById("date").textContent =
+            now.toLocaleDateString("no-NO", {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric"
+            });
+    }
+
+    function renderWeather(snapshot) {
+        document.getElementById("weather-icon").textContent = snapshot.icon || "☀️";
+        document.getElementById("weather").textContent = snapshot.summary || "Nå: --°C";
+
+        const container = document.getElementById("hourly-weather");
+        container.innerHTML = "";
+
+        for (const entry of snapshot.hourly || []) {
+            const item = document.createElement("div");
+            item.className = "forecast-item";
+
+            const time = new Date(entry.time);
+            const hour = time.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            });
+
+            item.innerHTML = `
+                <div class="icon">${entry.icon || "☀️"}</div>
+                <div class="time">${hour}</div>
+                <div class="temp">${Math.round(entry.temperature_c)}°</div>
+            `;
+
+            container.appendChild(item);
+        }
+    }
+
+    function renderCalendar(calendar) {
+        const container = document.getElementById("events");
+        container.innerHTML = "";
+
+        if (calendar && calendar.auth_required) {
+            const prompt = document.createElement("div");
+            prompt.className = "auth-prompt";
+            prompt.innerHTML = `
+                <p>${calendar.message || "Google Calendar authorization required."}</p>
+                <button id="google-auth-button" type="button">Authorize Google Calendar</button>
+            `;
+            container.appendChild(prompt);
+            document.getElementById("google-auth-button").addEventListener("click", startGoogleAuth);
+            return;
+        }
+
+        const days = calendar?.days || [];
+        const weekGrid = document.createElement("div");
+        weekGrid.className = "week-grid";
+
+        for (const day of days) {
+            const group = document.createElement("div");
+            group.className = "day-group";
+
+            const header = document.createElement("div");
+            header.className = "day-header";
+            header.textContent = new Date(day.date).toLocaleDateString("no-NO", {
+                weekday: "long",
+                day: "2-digit",
+                month: "2-digit"
+            });
+            group.appendChild(header);
+
+            const dayEvents = document.createElement("div");
+            dayEvents.className = "day-events";
+
+            if (!day.events || day.events.length === 0) {
+                const empty = document.createElement("div");
+                empty.className = "no-events";
+                empty.textContent = "Ingen hendelser";
+                dayEvents.appendChild(empty);
+            } else {
+                for (const event of day.events) {
+                    const item = document.createElement("div");
+                    item.className = "event";
+
+                    const time = event.start ? new Date(event.start).toLocaleTimeString("no-NO", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                        timeZone: "Europe/Oslo"
+                    }) : "Hele dagen";
+
+                    item.innerHTML = `
+                        <strong>${event.summary || "Untitled event"}</strong>
+                        <div class="event-time">${time}</div>
+                    `;
+
+                    dayEvents.appendChild(item);
+                }
+            }
+
+            group.appendChild(dayEvents);
+            weekGrid.appendChild(group);
+        }
+
+        container.appendChild(weekGrid);
+    }
+
+    async function startGoogleAuth() {
+        const response = await fetch("/api/oauth/google/config");
+        if (!response.ok) {
+            throw new Error(`Google config request failed: ${response.status}`);
+        }
+
+        const config = await response.json();
+        const params = new URLSearchParams({
+            client_id: config.client_id,
+            redirect_uri: config.redirect_uri,
+            response_type: "code",
+            scope: config.scope,
+            access_type: "offline",
+            prompt: "consent",
+            include_granted_scopes: "true"
+        });
+
+        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    }
+
+    async function loadDashboard() {
+        const response = await fetch("/api/dashboard");
+        if (!response.ok) {
+            throw new Error(`Dashboard request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        renderWeather(data.weather || {});
+        renderCalendar(data.calendar || {});
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    loadDashboard().catch(() => {
+        document.getElementById("weather").textContent = "Weather unavailable.";
+        document.getElementById("events").textContent = "Calendar unavailable.";
+    });
+
+    setInterval(loadDashboard, 15 * 60 * 1000);
+</script>
+</body>
+</html>
