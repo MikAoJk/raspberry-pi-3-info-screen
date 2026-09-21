@@ -60,16 +60,15 @@ docker run -d \
 -p 8080:8080 \
 infoscreeen
 ```
-Avaiable here at
+Avaiable at
 http://localhost:8080
 
+### Example output 
+![screenshot.png](screenshot.png)
 
-# Launch in fullscreen kiosk mode on the Raspberry Pi 3
+# Launch in kiosk mode on the Raspberry Pi 3
 ``` bash
 firefox \
 --kiosk \
 http://localhost:8080
 ```
-
-### Example output from my calendar
-![screenshot.png](screenshot.png)
