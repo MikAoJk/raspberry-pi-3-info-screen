@@ -1,4 +1,4 @@
-FROM rust:alpine AS builder
+FROM rust:alpine@sha256:ec9c91e77119ce498cd1e87d96d77e0f75b2cee21655a29bc2bf75a51a2b20a4 AS builder
 RUN cargo --version && cargo install cargo-auditable
 WORKDIR /build
 COPY . .
