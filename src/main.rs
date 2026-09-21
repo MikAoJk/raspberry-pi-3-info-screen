@@ -82,10 +82,14 @@ impl AppConfig {
             weather_latitude: env::var("WEATHER_LATITUDE").unwrap_or_else(|_| "58.14574000943632".to_string()),
             weather_longitude: env::var("WEATHER_LONGITUDE").unwrap_or_else(|_| "8.06137337891726".to_string()),
             calendar_id: env::var("CALENDAR_ID").unwrap_or_else(|_| "f2469c230e7c5d747c481a395b71f16b70f6b4c8d20d2bcb4348bc4e34eb814f@group.calendar.google.com".to_string()),
-            google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "186776332232-c9fd4t5oslulfdrin84obb6pgogpaktu.apps.googleusercontent.com".to_string()),
-            google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| "".to_string()),
+            google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
+            google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
             google_redirect_uri: env::var("GOOGLE_REDIRECT_URI").unwrap_or_else(|_| "http://localhost:8080/oauth/callback".to_string()),
         }
+    }
+
+    fn has_google_oauth_config(&self) -> bool {
+        !self.google_client_id.trim().is_empty() && !self.google_client_secret.trim().is_empty()
     }
 }
 
@@ -215,7 +219,7 @@ async fn get_google_oauth_config(State(state): State<ApplicationState>) -> Resul
     let client_id = state.config.google_client_id.clone();
     let redirect_uri = state.config.google_redirect_uri.clone();
 
-    if client_id.is_empty() {
+    if !state.config.has_google_oauth_config() {
         return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
     }
 
@@ -584,7 +588,7 @@ async fn exchange_google_code_for_token(
     let client_id = state.config.google_client_id.clone();
     let client_secret = state.config.google_client_secret.clone();
 
-    if client_id.is_empty() || client_secret.is_empty() {
+    if !state.config.has_google_oauth_config() {
         return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
     }
 
@@ -629,7 +633,7 @@ async fn refresh_google_token(
     let client_id = state.config.google_client_id.clone();
     let client_secret = state.config.google_client_secret.clone();
 
-    if client_id.is_empty() || client_secret.is_empty() {
+    if !state.config.has_google_oauth_config() {
         return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
     }
 
@@ -672,7 +676,7 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
     let client_id = state.config.google_client_id.clone();
     let client_secret = state.config.google_client_secret.clone();
 
-    if client_id.is_empty() || client_secret.is_empty() {
+    if !state.config.has_google_oauth_config() {
         return Err("Google OAuth is not configured on the server.".to_string());
     }
 
