@@ -66,3 +66,6 @@ firefox \
 --kiosk \
 http://localhost:8080
 ```
+
+### Example output from my calender
+![screenshot.png](screenshot.png)
