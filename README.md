@@ -38,28 +38,13 @@ export GOOGLE_REDIRECT_URI="http://localhost:8080/oauth/callback"
 
 ```
 
-### Run
-Run the code
+
+#### Running the application locally
 ```bash script
 cargo run
 ```
 
-#### Running the application locally
 
-#####  Create a docker image of an app
-Creating a docker image should be as simple as
-``` bash
-docker build -t infoscreeen .
-```
-
-#### Running a docker image
-``` bash
-docker run -d \
---name infoscreeen \
---restart unless-stopped \
--p 8080:8080 \
-infoscreeen
-```
 Avaiable at
 http://localhost:8080
 
