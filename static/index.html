@@ -117,30 +117,51 @@
 
         #hourly-weather {
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
-            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
             margin-top: 16px;
+        }
+
+        .weather-day {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .weather-day-header {
+            color: #dfe7f4;
+            font-size: 1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        }
+
+        .weather-day-forecasts {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
         }
 
         .forecast-item {
             background: rgba(255, 255, 255, 0.04);
             border-radius: 10px;
-            padding: 8px 6px;
+            padding: 12px 8px;
             text-align: center;
         }
 
         .forecast-item .icon {
-            font-size: 1.5rem;
-            margin-bottom: 4px;
+            font-size: 1.75rem;
+            margin-bottom: 6px;
         }
 
         .forecast-item .time {
             color: #aab2c0;
-            font-size: 0.8rem;
+            font-size: 0.9rem;
         }
 
         .forecast-item .temp {
-            font-size: 1.1rem;
+            font-size: 1.25rem;
             font-weight: bold;
         }
 
@@ -256,26 +277,39 @@
             }
 
             #hourly-weather {
-                grid-template-columns: repeat(12, minmax(0, 1fr));
+                grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 6px;
                 margin-top: 8px;
             }
 
+            .weather-day {
+                padding: 8px;
+            }
+
+            .weather-day-header {
+                font-size: 0.8rem;
+                margin-bottom: 6px;
+            }
+
+            .weather-day-forecasts {
+                gap: 4px;
+            }
+
             .forecast-item {
-                padding: 4px 2px;
+                padding: 6px 4px;
             }
 
             .forecast-item .icon {
-                font-size: 1rem;
+                font-size: 1.2rem;
                 margin-bottom: 2px;
             }
 
             .forecast-item .time {
-                font-size: 0.65rem;
+                font-size: 0.7rem;
             }
 
             .forecast-item .temp {
-                font-size: 0.85rem;
+                font-size: 0.95rem;
             }
 
             #events {
@@ -391,36 +425,65 @@
         container.innerHTML = "";
 
         const hourly = snapshot.hourly || [];
+        const dailyForecasts = new Map();
 
-        for (let index = 0; index < hourly.length; index += 4) {
-            const period = hourly.slice(index, index + 4);
-            const entry = period[0];
-            const item = document.createElement("div");
-            item.className = "forecast-item";
-
-            const start = new Date(entry.time);
-            const end = new Date(entry.time);
-            end.setHours(end.getHours() + 4);
-            const timeOptions = {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false
+        for (const entry of hourly) {
+            const date = new Date(entry.time);
+            const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+            const forecast = dailyForecasts.get(dateKey) || {
+                date,
+                entries: []
             };
-            const timeRange = `${start.toLocaleTimeString([], timeOptions)}–${end.toLocaleTimeString([], timeOptions)}`;
-            const temperatures = period.map(({ temperature_c }) => Math.round(temperature_c));
-            const lowestTemperature = Math.min(...temperatures);
-            const highestTemperature = Math.max(...temperatures);
-            const temperature = lowestTemperature === highestTemperature
-                ? `${lowestTemperature}°`
-                : `${lowestTemperature}–${highestTemperature}°`;
+            forecast.entries.push(entry);
+            dailyForecasts.set(dateKey, forecast);
+        }
 
-            item.innerHTML = `
-                <div class="icon">${entry.icon || "☀️"}</div>
-                <div class="time">${timeRange}</div>
-                <div class="temp">${temperature}</div>
-            `;
+        for (const { date, entries } of dailyForecasts.values()) {
+            const day = document.createElement("section");
+            day.className = "weather-day";
+            const header = document.createElement("div");
+            header.className = "weather-day-header";
+            header.textContent = date.toLocaleDateString("no-NO", {
+                weekday: "long",
+                day: "numeric",
+                month: "short"
+            });
+            const forecasts = document.createElement("div");
+            forecasts.className = "weather-day-forecasts";
 
-            container.appendChild(item);
+            for (let index = 0; index < entries.length; index += 4) {
+                const period = entries.slice(index, index + 4);
+                const entry = period[0];
+                const item = document.createElement("div");
+                item.className = "forecast-item";
+
+                const start = new Date(entry.time);
+                const end = new Date(period[period.length - 1].time);
+                end.setHours(end.getHours() + 1);
+                const timeOptions = {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false
+                };
+                const timeRange = `${start.toLocaleTimeString([], timeOptions)}–${end.toLocaleTimeString([], timeOptions)}`;
+                const temperatures = period.map(({ temperature_c }) => Math.round(temperature_c));
+                const lowestTemperature = Math.min(...temperatures);
+                const highestTemperature = Math.max(...temperatures);
+                const temperature = lowestTemperature === highestTemperature
+                    ? `${lowestTemperature}°`
+                    : `${lowestTemperature}–${highestTemperature}°`;
+
+                item.innerHTML = `
+                    <div class="icon">${entry.icon || "☀️"}</div>
+                    <div class="time">${timeRange}</div>
+                    <div class="temp">${temperature}</div>
+                `;
+
+                forecasts.appendChild(item);
+            }
+
+            day.append(header, forecasts);
+            container.appendChild(day);
         }
     }
 
