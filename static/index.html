@@ -127,7 +127,6 @@
             gap: 14px;
             margin-top: 16px;
             min-height: 0;
-            overflow: auto;
         }
 
         .weather-day {
@@ -434,10 +433,21 @@
 
         const hourly = snapshot.hourly || [];
         const dailyForecasts = new Map();
+        const currentDay = new Date();
+        currentDay.setHours(0, 0, 0, 0);
+        const nextDay = new Date(currentDay);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const displayedDays = new Set([
+            `${currentDay.getFullYear()}-${currentDay.getMonth()}-${currentDay.getDate()}`,
+            `${nextDay.getFullYear()}-${nextDay.getMonth()}-${nextDay.getDate()}`
+        ]);
 
         for (const entry of hourly) {
             const date = new Date(entry.time);
             const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+            if (!displayedDays.has(dateKey)) {
+                continue;
+            }
             const forecast = dailyForecasts.get(dateKey) || {
                 date,
                 entries: []
