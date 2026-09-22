@@ -217,13 +217,35 @@ fn string_to_static_str(s: String) -> &'static str {
 
 
 async fn get_google_oauth_config(State(state): State<ApplicationState>) -> Result<Json<GoogleOAuthConfigResponse>, (StatusCode, String)> {
+    if !state.config.has_google_oauth_config() {
+        let mut missing_variables = Vec::new();
+
+        if state.config.google_client_id.trim().is_empty() {
+            missing_variables.push("GOOGLE_CLIENT_ID");
+        }
+        if state.config.google_client_secret.trim().is_empty() {
+            missing_variables.push("GOOGLE_CLIENT_SECRET");
+        }
+
+        let missing_variables = missing_variables.join(", ");
+        error!(
+            "Google OAuth configuration is incomplete: missing {missing_variables}. \
+             Configure the variable(s) in the service environment and restart the service. \
+             redirect_uri={}",
+            state.config.google_redirect_uri
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "Google OAuth is unavailable because the server is missing {missing_variables}. \
+                 Configure the variable(s) and restart the service."
+            ),
+        ));
+    }
+
     let client_id = state.config.google_client_id.clone();
     let redirect_uri = state.config.google_redirect_uri.clone();
-
-    if !state.config.has_google_oauth_config() {
-        error!("Google OAuth is not configured on the server.");
-        return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
-    }
+    info!("Providing Google OAuth configuration. redirect_uri={redirect_uri}");
 
     Ok(Json(GoogleOAuthConfigResponse {
         client_id,
