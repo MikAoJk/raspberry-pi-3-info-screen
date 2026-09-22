@@ -256,7 +256,7 @@
             }
 
             #hourly-weather {
-                grid-template-columns: repeat(12, minmax(0, 1fr));
+                grid-template-columns: repeat(6, minmax(0, 1fr));
                 gap: 6px;
                 margin-top: 8px;
             }
@@ -390,21 +390,34 @@
         const container = document.getElementById("hourly-weather");
         container.innerHTML = "";
 
-        for (const entry of snapshot.hourly || []) {
+        const hourly = snapshot.hourly || [];
+
+        for (let index = 0; index < hourly.length; index += 4) {
+            const period = hourly.slice(index, index + 4);
+            const entry = period[0];
             const item = document.createElement("div");
             item.className = "forecast-item";
 
-            const time = new Date(entry.time);
-            const hour = time.toLocaleTimeString([], {
+            const start = new Date(entry.time);
+            const end = new Date(entry.time);
+            end.setHours(end.getHours() + 4);
+            const timeOptions = {
                 hour: "2-digit",
                 minute: "2-digit",
                 hour12: false
-            });
+            };
+            const timeRange = `${start.toLocaleTimeString([], timeOptions)}–${end.toLocaleTimeString([], timeOptions)}`;
+            const temperatures = period.map(({ temperature_c }) => Math.round(temperature_c));
+            const lowestTemperature = Math.min(...temperatures);
+            const highestTemperature = Math.max(...temperatures);
+            const temperature = lowestTemperature === highestTemperature
+                ? `${lowestTemperature}°`
+                : `${lowestTemperature}–${highestTemperature}°`;
 
             item.innerHTML = `
                 <div class="icon">${entry.icon || "☀️"}</div>
-                <div class="time">${hour}</div>
-                <div class="temp">${Math.round(entry.temperature_c)}°</div>
+                <div class="time">${timeRange}</div>
+                <div class="temp">${temperature}</div>
             `;
 
             container.appendChild(item);
