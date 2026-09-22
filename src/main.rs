@@ -501,7 +501,7 @@ async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnaps
 
     let hourly = timeseries
         .into_iter()
-        .take(24)
+        .take(48)
         .map(|entry| HourlyWeather {
             time: entry.time,
             temperature_c: entry.data.instant.details.air_temperature,
