@@ -38,6 +38,12 @@
             min-width: 0;
         }
 
+        .weather-card {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
         .calendar-card {
             grid-column: 1 / -1;
         }
@@ -120,6 +126,8 @@
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 14px;
             margin-top: 16px;
+            min-height: 0;
+            overflow: auto;
         }
 
         .weather-day {
@@ -382,7 +390,7 @@
         <div id="date">Laster Klokke...</div>
     </section>
 
-    <section class="card">
+    <section class="card weather-card">
         <h2>Vær</h2>
         <div id="weather-summary">
             <div id="weather-icon">--</div>
