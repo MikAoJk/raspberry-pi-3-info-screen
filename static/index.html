@@ -505,6 +505,72 @@
         }
     }
 
+    function formatCalendarEventTime(event) {
+        const isDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
+        const formatTime = (value) => new Date(value).toLocaleTimeString("no-NO", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "Europe/Oslo"
+        });
+        const formatDate = (date) => date.toLocaleDateString("no-NO", {
+            day: "2-digit",
+            month: "2-digit"
+        });
+
+        if (!event?.start) {
+            return "Hele dagen";
+        }
+
+        const startIsDateOnly = isDateOnly(event.start);
+        const endIsDateOnly = isDateOnly(event.end);
+
+        if (startIsDateOnly) {
+            if (!event.end || !endIsDateOnly) {
+                return "Hele dagen";
+            }
+
+            const [startYear, startMonth, startDay] = event.start.split("-").map(Number);
+            const [endYear, endMonth, endDay] = event.end.split("-").map(Number);
+            const startDate = new Date(startYear, startMonth - 1, startDay);
+            const exclusiveEndDate = new Date(endYear, endMonth - 1, endDay);
+            const inclusiveEndDate = new Date(exclusiveEndDate);
+            inclusiveEndDate.setDate(inclusiveEndDate.getDate() - 1);
+
+            if (inclusiveEndDate > startDate) {
+                return `${formatDate(startDate)}–${formatDate(inclusiveEndDate)} (hele dagen)`;
+            }
+            return "Hele dagen";
+        }
+
+        if (!event.end) {
+            return formatTime(event.start);
+        }
+
+        const startDateTime = new Date(event.start);
+        const endDateTime = new Date(event.end);
+        if (Number.isNaN(startDateTime.getTime()) || Number.isNaN(endDateTime.getTime())) {
+            return formatTime(event.start);
+        }
+
+        const startDateLabel = startDateTime.toLocaleDateString("no-NO", {
+            day: "2-digit",
+            month: "2-digit",
+            timeZone: "Europe/Oslo"
+        });
+        const endDateLabel = endDateTime.toLocaleDateString("no-NO", {
+            day: "2-digit",
+            month: "2-digit",
+            timeZone: "Europe/Oslo"
+        });
+
+        if (startDateLabel === endDateLabel) {
+            return `${formatTime(event.start)}–${formatTime(event.end)}`;
+        }
+
+        return `${startDateLabel} ${formatTime(event.start)}–${endDateLabel} ${formatTime(event.end)}`;
+    }
+
     function renderCalendar(calendar) {
         const container = document.getElementById("events");
         container.innerHTML = "";
@@ -551,12 +617,7 @@
                     const item = document.createElement("div");
                     item.className = "event";
 
-                    const time = event.start ? new Date(event.start).toLocaleTimeString("no-NO", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: false,
-                        timeZone: "Europe/Oslo"
-                    }) : "Hele dagen";
+                    const time = formatCalendarEventTime(event);
 
                     item.innerHTML = `
                         <strong>${event.title || "Untitled event"}</strong>
