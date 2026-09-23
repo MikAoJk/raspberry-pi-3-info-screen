@@ -474,7 +474,7 @@
 
         const showNextImage = () => {
             const nextBackground = images.length === 1 ? activeBackground : 1 - activeBackground;
-            const imageUrl = `/api/slideshow/images/${encodeURIComponent(images[imageIndex])}`;
+            const imageUrl = `/api/slideshow/images/${imageIndex}`;
             const preload = new Image();
 
             preload.onload = () => {

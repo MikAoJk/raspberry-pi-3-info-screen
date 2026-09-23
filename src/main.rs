@@ -1,6 +1,6 @@
 mod log;
 
-use std::{error,env, fs, path::Path as FilePath, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{error,env, fs, path::{Path as FilePath, PathBuf}, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
 use axum::{
     body::Body,
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .route("/api/oauth/google/token", post(store_google_token))
         .route("/api/oauth/google/refresh", post(refresh_google_token))
         .route("/api/slideshow", get(get_slideshow))
-        .route("/api/slideshow/images/{filename}", get(get_slideshow_image))
+        .route("/api/slideshow/images/{image_index}", get(get_slideshow_image))
         .route("/api/dashboard", get(get_dashboard))
         .with_state(application_state);
 
@@ -245,13 +245,23 @@ fn slideshow_content_type(filename: &str) -> Option<&'static str> {
 }
 
 async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<SlideshowResponse>, (StatusCode, String)> {
-    let mut entries = match tokio::fs::read_dir(&state.config.slideshow_directory).await {
+    let files = slideshow_files(&state.config.slideshow_directory).await?;
+    let images = files
+        .iter()
+        .filter_map(|path| path.file_name()?.to_str().map(str::to_string))
+        .collect();
+
+    Ok(Json(SlideshowResponse {
+        images,
+        interval_seconds: state.config.slideshow_interval_seconds,
+    }))
+}
+
+async fn slideshow_files(directory: &str) -> Result<Vec<PathBuf>, (StatusCode, String)> {
+    let mut entries = match tokio::fs::read_dir(directory).await {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Json(SlideshowResponse {
-                images: vec![],
-                interval_seconds: state.config.slideshow_interval_seconds,
-            }));
+            return Ok(vec![]);
         }
         Err(error) => {
             error!("Unable to read slideshow directory: {error}");
@@ -271,36 +281,25 @@ async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<Sli
         let Some(filename) = entry.file_name().to_str().map(str::to_string) else { continue; };
 
         if file_type.is_file() && slideshow_content_type(&filename).is_some() {
-            images.push(filename);
+            images.push(entry.path());
         }
     }
-    images.sort_by_key(|filename| filename.to_ascii_lowercase());
-
-    Ok(Json(SlideshowResponse {
-        images,
-        interval_seconds: state.config.slideshow_interval_seconds,
-    }))
+    images.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()));
+    Ok(images)
 }
 
 async fn get_slideshow_image(
     State(state): State<ApplicationState>,
-    Path(filename): Path<String>,
+    Path(image_index): Path<usize>,
 ) -> Result<Response, (StatusCode, String)> {
-    if FilePath::new(&filename).file_name().and_then(|name| name.to_str()) != Some(filename.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid slideshow filename.".to_string()));
-    }
+    let files = slideshow_files(&state.config.slideshow_directory).await?;
+    let path = files
+        .get(image_index)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
+    let filename = path.file_name().and_then(|name| name.to_str())
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
     let content_type = slideshow_content_type(&filename)
         .ok_or_else(|| (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported slideshow image type.".to_string()))?;
-
-    let directory = tokio::fs::canonicalize(&state.config.slideshow_directory)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
-    let path = tokio::fs::canonicalize(directory.join(&filename))
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
-    if !path.starts_with(&directory) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid slideshow filename.".to_string()));
-    }
 
     let image = tokio::fs::read(path)
         .await
