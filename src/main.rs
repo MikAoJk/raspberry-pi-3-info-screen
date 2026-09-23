@@ -1,15 +1,17 @@
 mod log;
 
-use std::{error,env, fs, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{error,env, fs, path::Path as FilePath, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
-    response::Html,
+    body::Body,
+    extract::{Path, Query, State},
+    http::{header, StatusCode},
+    response::{Html, Response},
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono_tz::Europe::Oslo;
 use ::log::{error, info};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -31,6 +33,8 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .route("/api/oauth/google/config", get(get_google_oauth_config))
         .route("/api/oauth/google/token", post(store_google_token))
         .route("/api/oauth/google/refresh", post(refresh_google_token))
+        .route("/api/slideshow", get(get_slideshow))
+        .route("/api/slideshow/images/{filename}", get(get_slideshow_image))
         .route("/api/dashboard", get(get_dashboard))
         .with_state(application_state);
 
@@ -72,6 +76,8 @@ struct AppConfig {
     google_client_id: String,
     google_client_secret: String,
     google_redirect_uri: String,
+    slideshow_directory: String,
+    slideshow_interval_seconds: u64,
 }
 
 impl AppConfig {
@@ -83,6 +89,12 @@ impl AppConfig {
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
             google_redirect_uri: env::var("GOOGLE_REDIRECT_URI").unwrap_or_else(|_| "http://localhost:8080/oauth/callback".to_string()),
+            slideshow_directory: env::var("SLIDESHOW_DIRECTORY").unwrap_or_else(|_| "static/slideshow".to_string()),
+            slideshow_interval_seconds: env::var("SLIDESHOW_INTERVAL_SECONDS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .filter(|seconds| *seconds > 0)
+                .unwrap_or(30),
         }
     }
 
@@ -157,6 +169,12 @@ struct DashboardResponse {
     calendar: CalendarAggregation,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct SlideshowResponse {
+    images: Vec<String>,
+    interval_seconds: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct OAuthToken {
     access_token: String,
@@ -213,6 +231,85 @@ async fn root() -> Html<&'static str> {
 
 fn string_to_static_str(s: String) -> &'static str {
     s.leak()
+}
+
+fn slideshow_content_type(filename: &str) -> Option<&'static str> {
+    match FilePath::new(filename).extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "avif" => Some("image/avif"),
+        "gif" => Some("image/gif"),
+        "jpeg" | "jpg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<SlideshowResponse>, (StatusCode, String)> {
+    let mut entries = match tokio::fs::read_dir(&state.config.slideshow_directory).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Json(SlideshowResponse {
+                images: vec![],
+                interval_seconds: state.config.slideshow_interval_seconds,
+            }));
+        }
+        Err(error) => {
+            error!("Unable to read slideshow directory: {error}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string()));
+        }
+    };
+
+    let mut images = Vec::new();
+    while let Some(entry) = entries.next_entry().await.map_err(|error| {
+        error!("Unable to read slideshow directory entry: {error}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string())
+    })? {
+        let file_type = entry.file_type().await.map_err(|error| {
+            error!("Unable to inspect slideshow file: {error}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Unable to inspect slideshow directory.".to_string())
+        })?;
+        let Some(filename) = entry.file_name().to_str().map(str::to_string) else { continue; };
+
+        if file_type.is_file() && slideshow_content_type(&filename).is_some() {
+            images.push(filename);
+        }
+    }
+    images.sort_by_key(|filename| filename.to_ascii_lowercase());
+
+    Ok(Json(SlideshowResponse {
+        images,
+        interval_seconds: state.config.slideshow_interval_seconds,
+    }))
+}
+
+async fn get_slideshow_image(
+    State(state): State<ApplicationState>,
+    Path(filename): Path<String>,
+) -> Result<Response, (StatusCode, String)> {
+    if FilePath::new(&filename).file_name().and_then(|name| name.to_str()) != Some(filename.as_str()) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid slideshow filename.".to_string()));
+    }
+    let content_type = slideshow_content_type(&filename)
+        .ok_or_else(|| (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported slideshow image type.".to_string()))?;
+
+    let directory = tokio::fs::canonicalize(&state.config.slideshow_directory)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
+    let path = tokio::fs::canonicalize(directory.join(&filename))
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
+    if !path.starts_with(&directory) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid slideshow filename.".to_string()));
+    }
+
+    let image = tokio::fs::read(path)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
+    Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .body(Body::from(image))
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("Unable to build image response: {error}")))
 }
 
 
@@ -334,8 +431,10 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
     };
 
     let calendar_id = state.config.calendar_id.clone();
-    let start = Utc::now().with_timezone(&Utc).date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-    let end = start + chrono::Duration::days(7);
+    let display_start = Utc::now().with_timezone(&Oslo).date_naive();
+    let start = Oslo.from_local_datetime(&display_start.and_hms_opt(0, 0, 0).unwrap()).single().unwrap().with_timezone(&Utc);
+    let display_end = display_start + chrono::Duration::days(7);
+    let end = Oslo.from_local_datetime(&display_end.and_hms_opt(0, 0, 0).unwrap()).single().unwrap().with_timezone(&Utc);
     let response = state.http_client
         .get(&format!("https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"))
         .query(&[
@@ -358,7 +457,7 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
     }
 
     let payload: GoogleCalendarApiResponse = response.json().await.map_err(|error| format!("calendar API parse failed: {error}"))?;
-    let days = build_calendar_days(payload.items);
+    let days = build_calendar_days(payload.items, display_start);
     let output = CalendarAggregation {
         auth_required: false,
         message: None,
@@ -388,17 +487,46 @@ struct GoogleEventTime {
     #[serde(default, rename = "dateTime")] date_time: Option<String>,
 }
 
-fn build_calendar_days(items: Vec<GoogleCalendarItem>) -> Vec<CalendarDay> {
+fn event_date(value: &GoogleEventTime) -> Option<NaiveDate> {
+    value
+        .date
+        .as_deref()
+        .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        .or_else(|| {
+            value
+                .date_time
+                .as_deref()
+                .and_then(|date_time| DateTime::parse_from_rfc3339(date_time).ok())
+                .map(|date_time| date_time.with_timezone(&Oslo).date_naive())
+        })
+}
+
+fn event_date_span(item: &GoogleCalendarItem) -> Option<(NaiveDate, NaiveDate)> {
+    let start = event_date(&item.start)?;
+    let Some(end) = item.end.as_ref() else {
+        return Some((start, start));
+    };
+
+    let inclusive_end = if item.start.date.is_some() {
+        event_date(end).and_then(|date| date.pred_opt())
+    } else {
+        end.date_time
+            .as_deref()
+            .and_then(|date_time| DateTime::parse_from_rfc3339(date_time).ok())
+            .and_then(|date_time| date_time.checked_sub_signed(chrono::Duration::nanoseconds(1)))
+            .map(|date_time| date_time.with_timezone(&Oslo).date_naive())
+    }
+    .unwrap_or(start);
+
+    Some((start, inclusive_end.max(start)))
+}
+
+fn build_calendar_days(items: Vec<GoogleCalendarItem>, display_start: NaiveDate) -> Vec<CalendarDay> {
     let mut events_by_day: std::collections::BTreeMap<String, Vec<CalendarEvent>> = std::collections::BTreeMap::new();
+    let display_end = display_start + chrono::Duration::days(6);
 
     for item in items {
-        let start_value = item.start.date.clone().or_else(|| item.start.date_time.clone());
-        let Some(date_value) = start_value else { continue; };
-        let date_key = if date_value.len() >= 10 {
-            date_value[..10].to_string()
-        } else {
-            date_value
-        };
+        let Some((event_start, event_end)) = event_date_span(&item) else { continue; };
 
         let start_text = if item.start.date_time.is_some() {
             item.start.date_time.clone().unwrap_or_default()
@@ -413,13 +541,21 @@ fn build_calendar_days(items: Vec<GoogleCalendarItem>) -> Vec<CalendarDay> {
             end: end_text,
         };
 
-        events_by_day.entry(date_key).or_default().push(event);
+        let first_visible_date = event_start.max(display_start);
+        let last_visible_date = event_end.min(display_end);
+        if first_visible_date > last_visible_date {
+            continue;
+        }
+
+        for offset in 0..=(last_visible_date - first_visible_date).num_days() {
+            let date = first_visible_date + chrono::Duration::days(offset);
+            events_by_day.entry(date.to_string()).or_default().push(event.clone());
+        }
     }
 
-    let start = Utc::now().date_naive();
     let mut days = Vec::new();
     for offset in 0..7 {
-        let date = start + chrono::Duration::days(offset);
+        let date = display_start + chrono::Duration::days(offset);
         let key = date.to_string();
         let events = events_by_day.remove(&key).unwrap_or_default();
         days.push(CalendarDay {
@@ -691,4 +827,89 @@ fn now_unix_seconds() -> u64 {
 
 fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
     now_unix_seconds().saturating_sub(cached_at_unix) < ttl_seconds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(title: &str, start: GoogleEventTime, end: GoogleEventTime) -> GoogleCalendarItem {
+        GoogleCalendarItem {
+            summary: Some(title.to_string()),
+            start,
+            end: Some(end),
+        }
+    }
+
+    fn all_day(date: &str) -> GoogleEventTime {
+        GoogleEventTime {
+            date: Some(date.to_string()),
+            date_time: None,
+        }
+    }
+
+    fn timed(date_time: &str) -> GoogleEventTime {
+        GoogleEventTime {
+            date: None,
+            date_time: Some(date_time.to_string()),
+        }
+    }
+
+    #[test]
+    fn accepts_only_browser_safe_slideshow_image_types() {
+        assert_eq!(slideshow_content_type("photo.JPG"), Some("image/jpeg"));
+        assert_eq!(slideshow_content_type("photo.webp"), Some("image/webp"));
+        assert_eq!(slideshow_content_type("photo.svg"), None);
+        assert_eq!(slideshow_content_type("photo.txt"), None);
+    }
+
+    #[test]
+    fn displays_events_on_every_day_they_span() {
+        let display_start = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
+        let days = build_calendar_days(
+            vec![
+                event("Holiday", all_day("2026-09-22"), all_day("2026-09-26")),
+                event(
+                    "Overnight",
+                    timed("2026-09-23T23:00:00+02:00"),
+                    timed("2026-09-24T01:00:00+02:00"),
+                ),
+            ],
+            display_start,
+        );
+
+        assert_eq!(
+            days.iter()
+                .map(|day| day.events.iter().map(|event| event.title.as_str()).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            vec![
+                vec!["Holiday", "Overnight"],
+                vec!["Holiday", "Overnight"],
+                vec!["Holiday"],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ]
+        );
+    }
+
+    #[test]
+    fn treats_google_end_dates_and_midnight_as_exclusive() {
+        let display_start = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
+        let days = build_calendar_days(
+            vec![
+                event("All day", all_day("2026-09-23"), all_day("2026-09-24")),
+                event(
+                    "Until midnight",
+                    timed("2026-09-23T20:00:00+02:00"),
+                    timed("2026-09-24T00:00:00+02:00"),
+                ),
+            ],
+            display_start,
+        );
+
+        assert_eq!(days[0].events.len(), 2);
+        assert!(days[1].events.is_empty());
+    }
 }
