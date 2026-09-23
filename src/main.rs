@@ -20,6 +20,7 @@ use crate::log::init_log4rs;
 
 const WEATHER_CACHE_TTL: u64 = 15 * 60;
 const CALENDAR_CACHE_TTL: u64 = 15 * 60;
+const DEFAULT_SLIDESHOW_DIRECTORY: &str = "static/slideshow";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn error::Error>> {
@@ -89,12 +90,29 @@ impl AppConfig {
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
             google_redirect_uri: env::var("GOOGLE_REDIRECT_URI").unwrap_or_else(|_| "http://localhost:8080/oauth/callback".to_string()),
-            slideshow_directory: env::var("SLIDESHOW_DIRECTORY").unwrap_or_else(|_| "static/slideshow".to_string()),
+            slideshow_directory: Self::slideshow_directory_from_env(),
             slideshow_interval_seconds: env::var("SLIDESHOW_INTERVAL_SECONDS")
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .filter(|seconds| *seconds > 0)
                 .unwrap_or(30),
+        }
+    }
+
+    fn slideshow_directory_from_env() -> String {
+        match env::var("SLIDESHOW_DIRECTORY") {
+            Ok(directory) if !directory.trim().is_empty() => {
+                info!("Using configured slideshow directory from SLIDESHOW_DIRECTORY: {directory}");
+                directory
+            }
+            Ok(_) => {
+                info!("SLIDESHOW_DIRECTORY is set but empty; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}");
+                DEFAULT_SLIDESHOW_DIRECTORY.to_string()
+            }
+            Err(_) => {
+                info!("SLIDESHOW_DIRECTORY is not set; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}");
+                DEFAULT_SLIDESHOW_DIRECTORY.to_string()
+            }
         }
     }
 
@@ -262,9 +280,14 @@ fn slideshow_path_is_within(directory: &FilePath, path: &FilePath) -> bool {
 }
 
 async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCode, String)> {
+    info!("Resolving slideshow directory path: {}", directory.display());
     let directory = match tokio::fs::canonicalize(directory).await {
-        Ok(directory) => directory,
+        Ok(directory) => {
+            info!("Resolved slideshow directory path: {}", directory.display());
+            directory
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            info!("Slideshow directory not found; no slideshow images will be served.");
             return Ok(vec![]);
         }
         Err(error) => {
@@ -306,6 +329,11 @@ async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCo
         }
     }
     images.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()));
+    info!(
+        "Found {} slideshow image(s) in {}",
+        images.len(),
+        directory.display()
+    );
     Ok(images)
 }
 
@@ -941,4 +969,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-}
+                      }
