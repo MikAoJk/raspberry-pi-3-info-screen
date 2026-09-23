@@ -1,18 +1,23 @@
 mod log;
 
-use std::{error,env, fs, path::{Path as FilePath, PathBuf}, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    env, error, fs,
+    path::{Path as FilePath, PathBuf},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
+use ::log::{error, info};
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{Html, Response},
     routing::{get, post},
-    Json, Router,
 };
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Europe::Oslo;
-use ::log::{error, info};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -35,7 +40,10 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .route("/api/oauth/google/token", post(store_google_token))
         .route("/api/oauth/google/refresh", post(refresh_google_token))
         .route("/api/slideshow", get(get_slideshow))
-        .route("/api/slideshow/images/{image_index}", get(get_slideshow_image))
+        .route(
+            "/api/slideshow/images/{image_index}",
+            get(get_slideshow_image),
+        )
         .route("/api/dashboard", get(get_dashboard))
         .with_state(application_state);
 
@@ -77,6 +85,7 @@ struct AppConfig {
     google_client_id: String,
     google_client_secret: String,
     google_redirect_uri: String,
+    google_oauth_token_url: String,
     slideshow_directory: String,
     slideshow_interval_seconds: u64,
 }
@@ -90,6 +99,7 @@ impl AppConfig {
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
             google_redirect_uri: env::var("GOOGLE_REDIRECT_URI").unwrap_or_else(|_| "http://localhost:8080/oauth/callback".to_string()),
+            google_oauth_token_url: env::var("GOOGLE_OAUTH_TOKEN_URL").unwrap_or_else(|_| "https://oauth2.googleapis.com/token".to_string()),
             slideshow_directory: Self::slideshow_directory_from_env(),
             slideshow_interval_seconds: env::var("SLIDESHOW_INTERVAL_SECONDS")
                 .ok()
@@ -106,11 +116,15 @@ impl AppConfig {
                 directory
             }
             Ok(_) => {
-                info!("SLIDESHOW_DIRECTORY is set but empty; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}");
+                info!(
+                    "SLIDESHOW_DIRECTORY is set but empty; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}"
+                );
                 DEFAULT_SLIDESHOW_DIRECTORY.to_string()
             }
             Err(_) => {
-                info!("SLIDESHOW_DIRECTORY is not set; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}");
+                info!(
+                    "SLIDESHOW_DIRECTORY is not set; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}"
+                );
                 DEFAULT_SLIDESHOW_DIRECTORY.to_string()
             }
         }
@@ -203,7 +217,10 @@ struct OAuthToken {
 
 impl OAuthToken {
     fn is_expired(&self) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         now >= self.expires_at_unix
     }
 }
@@ -241,7 +258,8 @@ struct OAuthExchangeResponse {
 }
 
 async fn root() -> Html<&'static str> {
-    let html_in_string: String = fs::read_to_string("static/index.html").expect("failed to read html file to string");
+    let html_in_string: String =
+        fs::read_to_string("static/index.html").expect("failed to read html file to string");
     let html_in_str: &str = string_to_static_str(html_in_string);
 
     Html(html_in_str)
@@ -252,7 +270,12 @@ fn string_to_static_str(s: String) -> &'static str {
 }
 
 fn slideshow_content_type(filename: &str) -> Option<&'static str> {
-    match FilePath::new(filename).extension()?.to_str()?.to_ascii_lowercase().as_str() {
+    match FilePath::new(filename)
+        .extension()?
+        .to_str()?
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "avif" => Some("image/avif"),
         "gif" => Some("image/gif"),
         "jpeg" | "jpg" => Some("image/jpeg"),
@@ -262,7 +285,9 @@ fn slideshow_content_type(filename: &str) -> Option<&'static str> {
     }
 }
 
-async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<SlideshowResponse>, (StatusCode, String)> {
+async fn get_slideshow(
+    State(state): State<ApplicationState>,
+) -> Result<Json<SlideshowResponse>, (StatusCode, String)> {
     let files = slideshow_files(FilePath::new(&state.config.slideshow_directory)).await?;
     let images = files
         .iter()
@@ -280,7 +305,10 @@ fn slideshow_path_is_within(directory: &FilePath, path: &FilePath) -> bool {
 }
 
 async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCode, String)> {
-    info!("Resolving slideshow directory path: {}", directory.display());
+    info!(
+        "Resolving slideshow directory path: {}",
+        directory.display()
+    );
     let directory = match tokio::fs::canonicalize(directory).await {
         Ok(directory) => {
             info!("Resolved slideshow directory path: {}", directory.display());
@@ -292,7 +320,10 @@ async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCo
         }
         Err(error) => {
             error!("Unable to resolve slideshow directory: {error}");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string()));
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to read slideshow directory.".to_string(),
+            ));
         }
     };
 
@@ -300,26 +331,42 @@ async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCo
         Ok(entries) => entries,
         Err(error) => {
             error!("Unable to read slideshow directory: {error}");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string()));
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to read slideshow directory.".to_string(),
+            ));
         }
     };
 
     let mut images = Vec::new();
     while let Some(entry) = entries.next_entry().await.map_err(|error| {
         error!("Unable to read slideshow directory entry: {error}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string())
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unable to read slideshow directory.".to_string(),
+        )
     })? {
         let file_type = entry.file_type().await.map_err(|error| {
             error!("Unable to inspect slideshow file: {error}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "Unable to inspect slideshow directory.".to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to inspect slideshow directory.".to_string(),
+            )
         })?;
-        let Some(filename) = entry.file_name().to_str().map(str::to_string) else { continue; };
+        let Some(filename) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
 
         if file_type.is_file() && slideshow_content_type(&filename).is_some() {
-            let path = tokio::fs::canonicalize(entry.path()).await.map_err(|error| {
-                error!("Unable to resolve slideshow file: {error}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Unable to inspect slideshow directory.".to_string())
-            })?;
+            let path = tokio::fs::canonicalize(entry.path())
+                .await
+                .map_err(|error| {
+                    error!("Unable to resolve slideshow file: {error}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Unable to inspect slideshow directory.".to_string(),
+                    )
+                })?;
 
             if slideshow_path_is_within(&directory, &path) {
                 images.push(path);
@@ -328,7 +375,10 @@ async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCo
             }
         }
     }
-    images.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()));
+    images.sort_by_key(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_ascii_lowercase())
+    });
     info!(
         "Found {} slideshow image(s) in {}",
         images.len(),
@@ -342,26 +392,49 @@ async fn get_slideshow_image(
     Path(image_index): Path<usize>,
 ) -> Result<Response, (StatusCode, String)> {
     let files = slideshow_files(FilePath::new(&state.config.slideshow_directory)).await?;
-    let path = files
-        .get(image_index)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
-    let filename = path.file_name().and_then(|name| name.to_str())
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
-    let content_type = slideshow_content_type(&filename)
-        .ok_or_else(|| (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported slideshow image type.".to_string()))?;
+    let path = files.get(image_index).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "Slideshow image not found.".to_string(),
+        )
+    })?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Slideshow image not found.".to_string(),
+            )
+        })?;
+    let content_type = slideshow_content_type(&filename).ok_or_else(|| {
+        (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Unsupported slideshow image type.".to_string(),
+        )
+    })?;
 
-    let image = tokio::fs::read(path)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
+    let image = tokio::fs::read(path).await.map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            "Slideshow image not found.".to_string(),
+        )
+    })?;
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CACHE_CONTROL, "public, max-age=3600")
         .body(Body::from(image))
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("Unable to build image response: {error}")))
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Unable to build image response: {error}"),
+            )
+        })
 }
 
-
-async fn get_google_oauth_config(State(state): State<ApplicationState>) -> Result<Json<GoogleOAuthConfigResponse>, (StatusCode, String)> {
+async fn get_google_oauth_config(
+    State(state): State<ApplicationState>,
+) -> Result<Json<GoogleOAuthConfigResponse>, (StatusCode, String)> {
     if !state.config.has_google_oauth_config() {
         let mut missing_variables = Vec::new();
 
@@ -405,10 +478,18 @@ async fn google_oauth_callback(
 ) -> Result<Html<String>, (StatusCode, String)> {
     if let Some(error) = query.error {
         error!("Google OAuth denied: {error}");
-        return Err((StatusCode::BAD_REQUEST, format!("Google OAuth denied: {error}")));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Google OAuth denied: {error}"),
+        ));
     }
 
-    let code = query.code.ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing Google OAuth code.".to_string()))?;
+    let code = query.code.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Missing Google OAuth code.".to_string(),
+        )
+    })?;
     let redirect_uri = state.config.google_redirect_uri.clone();
     let token = exchange_google_code_for_token(&state, code, redirect_uri).await?;
     *state.oauth_tokens.lock().await = Some(token);
@@ -430,25 +511,48 @@ async fn google_oauth_callback(
     Ok(Html(html.to_string()))
 }
 
-async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
-    let weather = fetch_weather_snapshot(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
-    let calendar = fetch_calendar_aggregation(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+async fn get_dashboard(
+    State(state): State<ApplicationState>,
+) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
+    let weather = fetch_weather_snapshot(&state)
+        .await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+    let calendar = fetch_calendar_aggregation(&state)
+        .await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
 
     Ok(Json(DashboardResponse { weather, calendar }))
 }
 
 async fn fetch_weather_snapshot(state: &ApplicationState) -> Result<WeatherSnapshot, String> {
-    if let Some(cached) = state.weather_cache.lock().await.clone().filter(|entry| entry.is_fresh(WEATHER_CACHE_TTL)) {
+    if let Some(cached) = state
+        .weather_cache
+        .lock()
+        .await
+        .clone()
+        .filter(|entry| entry.is_fresh(WEATHER_CACHE_TTL))
+    {
         return Ok(cached.payload);
     }
 
     let fresh = fetch_weather_from_met(state).await?;
-    *state.weather_cache.lock().await = Some(WeatherCache { cached_at_unix: now_unix_seconds(), payload: fresh.clone() });
+    *state.weather_cache.lock().await = Some(WeatherCache {
+        cached_at_unix: now_unix_seconds(),
+        payload: fresh.clone(),
+    });
     Ok(fresh)
 }
 
-async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<CalendarAggregation, String> {
-    if let Some(cached) = state.calendar_cache.lock().await.clone().filter(|entry| entry.is_fresh(CALENDAR_CACHE_TTL)) {
+async fn fetch_calendar_aggregation(
+    state: &ApplicationState,
+) -> Result<CalendarAggregation, String> {
+    if let Some(cached) = state
+        .calendar_cache
+        .lock()
+        .await
+        .clone()
+        .filter(|entry| entry.is_fresh(CALENDAR_CACHE_TTL))
+    {
         return Ok(cached.payload);
     }
 
@@ -464,13 +568,17 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
                 auth_required: true,
                 message: Some("Google Calendar authorization required.".to_string()),
                 days: vec![],
-                fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0).unwrap_or_else(Utc::now).to_rfc3339(),
+                fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0)
+                    .unwrap_or_else(Utc::now)
+                    .to_rfc3339(),
             });
         }
     };
 
     let access_token = if tokens.is_expired() {
-        let refreshed = refresh_google_access_token(state, tokens.refresh_token.clone().unwrap_or_default()).await?;
+        let refreshed =
+            refresh_google_access_token(state, tokens.refresh_token.clone().unwrap_or_default())
+                .await?;
         let mut lock = state.oauth_tokens.lock().await;
         *lock = Some(refreshed.clone());
         refreshed.access_token
@@ -480,11 +588,22 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
 
     let calendar_id = state.config.calendar_id.clone();
     let display_start = Utc::now().with_timezone(&Oslo).date_naive();
-    let start = Oslo.from_local_datetime(&display_start.and_hms_opt(0, 0, 0).unwrap()).single().unwrap().with_timezone(&Utc);
+    let start = Oslo
+        .from_local_datetime(&display_start.and_hms_opt(0, 0, 0).unwrap())
+        .single()
+        .unwrap()
+        .with_timezone(&Utc);
     let display_end = display_start + chrono::Duration::days(7);
-    let end = Oslo.from_local_datetime(&display_end.and_hms_opt(0, 0, 0).unwrap()).single().unwrap().with_timezone(&Utc);
-    let response = state.http_client
-        .get(&format!("https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"))
+    let end = Oslo
+        .from_local_datetime(&display_end.and_hms_opt(0, 0, 0).unwrap())
+        .single()
+        .unwrap()
+        .with_timezone(&Utc);
+    let response = state
+        .http_client
+        .get(&format!(
+            "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
+        ))
         .query(&[
             ("timeMin", start.to_rfc3339().to_string()),
             ("timeMax", end.to_rfc3339().to_string()),
@@ -504,35 +623,49 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
         return Err(format!("calendar API returned {status}: {body}"));
     }
 
-    let payload: GoogleCalendarApiResponse = response.json().await.map_err(|error| format!("calendar API parse failed: {error}"))?;
+    let payload: GoogleCalendarApiResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("calendar API parse failed: {error}"))?;
     let days = build_calendar_days(payload.items, display_start);
     let output = CalendarAggregation {
         auth_required: false,
         message: None,
         days,
-        fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0).unwrap_or_else(Utc::now).to_rfc3339(),
+        fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0)
+            .unwrap_or_else(Utc::now)
+            .to_rfc3339(),
     };
 
-    *state.calendar_cache.lock().await = Some(CalendarCache { cached_at_unix: now_unix_seconds(), payload: output.clone() });
+    *state.calendar_cache.lock().await = Some(CalendarCache {
+        cached_at_unix: now_unix_seconds(),
+        payload: output.clone(),
+    });
     Ok(output)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct GoogleCalendarApiResponse {
-    #[serde(default)] items: Vec<GoogleCalendarItem>,
+    #[serde(default)]
+    items: Vec<GoogleCalendarItem>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct GoogleCalendarItem {
-    #[serde(default)] summary: Option<String>,
-    #[serde(default)] start: GoogleEventTime,
-    #[serde(default)] end: Option<GoogleEventTime>,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    start: GoogleEventTime,
+    #[serde(default)]
+    end: Option<GoogleEventTime>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct GoogleEventTime {
-    #[serde(default)] date: Option<String>,
-    #[serde(default, rename = "dateTime")] date_time: Option<String>,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default, rename = "dateTime")]
+    date_time: Option<String>,
 }
 
 fn event_date(value: &GoogleEventTime) -> Option<NaiveDate> {
@@ -569,12 +702,18 @@ fn event_date_span(item: &GoogleCalendarItem) -> Option<(NaiveDate, NaiveDate)> 
     Some((start, inclusive_end.max(start)))
 }
 
-fn build_calendar_days(items: Vec<GoogleCalendarItem>, display_start: NaiveDate) -> Vec<CalendarDay> {
-    let mut events_by_day: std::collections::BTreeMap<String, Vec<CalendarEvent>> = std::collections::BTreeMap::new();
+fn build_calendar_days(
+    items: Vec<GoogleCalendarItem>,
+    display_start: NaiveDate,
+) -> Vec<CalendarDay> {
+    let mut events_by_day: std::collections::BTreeMap<String, Vec<CalendarEvent>> =
+        std::collections::BTreeMap::new();
     let display_end = display_start + chrono::Duration::days(6);
 
     for item in items {
-        let Some((event_start, event_end)) = event_date_span(&item) else { continue; };
+        let Some((event_start, event_end)) = event_date_span(&item) else {
+            continue;
+        };
 
         let start_text = if item.start.date_time.is_some() {
             item.start.date_time.clone().unwrap_or_default()
@@ -597,7 +736,10 @@ fn build_calendar_days(items: Vec<GoogleCalendarItem>, display_start: NaiveDate)
 
         for offset in 0..=(last_visible_date - first_visible_date).num_days() {
             let date = first_visible_date + chrono::Duration::days(offset);
-            events_by_day.entry(date.to_string()).or_default().push(event.clone());
+            events_by_day
+                .entry(date.to_string())
+                .or_default()
+                .push(event.clone());
         }
     }
 
@@ -606,10 +748,7 @@ fn build_calendar_days(items: Vec<GoogleCalendarItem>, display_start: NaiveDate)
         let date = display_start + chrono::Duration::days(offset);
         let key = date.to_string();
         let events = events_by_day.remove(&key).unwrap_or_default();
-        days.push(CalendarDay {
-            date: key,
-            events,
-        });
+        days.push(CalendarDay { date: key, events });
     }
     days
 }
@@ -659,11 +798,11 @@ struct MetNoSummary {
 async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnapshot, String> {
     let url = format!(
         "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={}&lon={}",
-        state.config.weather_latitude,
-        state.config.weather_longitude
+        state.config.weather_latitude, state.config.weather_longitude
     );
 
-    let response = state.http_client
+    let response = state
+        .http_client
         .get(url)
         .header("User-Agent", "raspberry-pi-info-screen/1.0")
         .send()
@@ -676,12 +815,23 @@ async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnaps
         return Err(format!("weather API returned {status}: {body}"));
     }
 
-    let payload: MetNoLocationForecastResponse = response.json().await.map_err(|error| format!("weather JSON decode failed: {error}"))?;
+    let payload: MetNoLocationForecastResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("weather JSON decode failed: {error}"))?;
     let timeseries = payload.properties.timeseries;
 
-    let current = timeseries.first().cloned().ok_or_else(|| "weather data was empty".to_string())?;
+    let current = timeseries
+        .first()
+        .cloned()
+        .ok_or_else(|| "weather data was empty".to_string())?;
     let temperature = current.data.instant.details.air_temperature;
-    let symbol = current.data.next_1_hours.as_ref().and_then(|summary| summary.summary.symbol_code.as_deref()).unwrap_or("clearsky_day");
+    let symbol = current
+        .data
+        .next_1_hours
+        .as_ref()
+        .and_then(|summary| summary.summary.symbol_code.as_deref())
+        .unwrap_or("clearsky_day");
 
     let hourly = timeseries
         .into_iter()
@@ -689,7 +839,14 @@ async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnaps
         .map(|entry| HourlyWeather {
             time: entry.time,
             temperature_c: entry.data.instant.details.air_temperature,
-            icon: resolve_weather_icon(entry.data.next_1_hours.as_ref().and_then(|summary| summary.summary.symbol_code.as_deref()).unwrap_or("clearsky_day")),
+            icon: resolve_weather_icon(
+                entry
+                    .data
+                    .next_1_hours
+                    .as_ref()
+                    .and_then(|summary| summary.summary.symbol_code.as_deref())
+                    .unwrap_or("clearsky_day"),
+            ),
         })
         .collect();
 
@@ -732,7 +889,10 @@ async fn store_google_token(
     State(state): State<ApplicationState>,
     Json(request): Json<OAuthTokenRequest>,
 ) -> Result<Json<OAuthToken>, (StatusCode, String)> {
-    let redirect_uri = request.redirect_uri.clone().unwrap_or_else(|| state.config.google_redirect_uri.clone());
+    let redirect_uri = request
+        .redirect_uri
+        .clone()
+        .unwrap_or_else(|| state.config.google_redirect_uri.clone());
     let token = exchange_google_code_for_token(&state, request.code, redirect_uri).await?;
     *state.oauth_tokens.lock().await = Some(token.clone());
     Ok(Json(token))
@@ -747,7 +907,10 @@ async fn exchange_google_code_for_token(
     let client_secret = state.config.google_client_secret.clone();
 
     if !state.config.has_google_oauth_config() {
-        return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Google OAuth is not configured on the server.".to_string(),
+        ));
     }
 
     let payload = vec![
@@ -758,21 +921,33 @@ async fn exchange_google_code_for_token(
         ("grant_type", "authorization_code"),
     ];
 
-    let response = state.http_client
-        .post("https://oauth2.googleapis.com/token")
+    let response = state
+        .http_client
+        .post(&state.config.google_oauth_token_url)
         .form(&payload)
         .send()
         .await
-        .map_err(|error| (StatusCode::BAD_GATEWAY, format!("token exchange failed: {error}")))?;
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("token exchange failed: {error}"),
+            )
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err((StatusCode::BAD_GATEWAY, format!("token exchange returned {status}: {body}")));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("token exchange returned {status}: {body}"),
+        ));
     }
 
     let oauth_response: OAuthExchangeResponse = response.json().await.map_err(|error| {
-        (StatusCode::BAD_GATEWAY, format!("token response could not be parsed: {error}"))
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("token response could not be parsed: {error}"),
+        )
     })?;
 
     let expires_in = oauth_response.expires_in.unwrap_or(3600);
@@ -792,7 +967,10 @@ async fn refresh_google_token(
     let client_secret = state.config.google_client_secret.clone();
 
     if !state.config.has_google_oauth_config() {
-        return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured on the server.".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Google OAuth is not configured on the server.".to_string(),
+        ));
     }
 
     let payload = vec![
@@ -802,35 +980,51 @@ async fn refresh_google_token(
         ("grant_type", "refresh_token"),
     ];
 
-    let response = state.http_client
-        .post("https://oauth2.googleapis.com/token")
+    let response = state
+        .http_client
+        .post(&state.config.google_oauth_token_url)
         .form(&payload)
         .send()
         .await
-        .map_err(|error| (StatusCode::BAD_GATEWAY, format!("token refresh failed: {error}")))?;
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("token refresh failed: {error}"),
+            )
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err((StatusCode::BAD_GATEWAY, format!("token refresh returned {status}: {body}")));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("token refresh returned {status}: {body}"),
+        ));
     }
 
     let oauth_response: OAuthExchangeResponse = response.json().await.map_err(|error| {
-        (StatusCode::BAD_GATEWAY, format!("refresh response could not be parsed: {error}"))
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("refresh response could not be parsed: {error}"),
+        )
     })?;
 
     let token = OAuthToken {
         access_token: oauth_response.access_token,
         refresh_token: Some(request.refresh_token),
         token_type: oauth_response.token_type,
-        expires_at_unix: now_unix_seconds().saturating_add(oauth_response.expires_in.unwrap_or(3600)),
+        expires_at_unix: now_unix_seconds()
+            .saturating_add(oauth_response.expires_in.unwrap_or(3600)),
     };
 
     *state.oauth_tokens.lock().await = Some(token.clone());
     Ok(Json(token))
 }
 
-async fn refresh_google_access_token(state: &ApplicationState, refresh_token: String) -> Result<OAuthToken, String> {
+async fn refresh_google_access_token(
+    state: &ApplicationState,
+    refresh_token: String,
+) -> Result<OAuthToken, String> {
     let client_id = state.config.google_client_id.clone();
     let client_secret = state.config.google_client_secret.clone();
 
@@ -846,8 +1040,9 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
         ("grant_type", "refresh_token"),
     ];
 
-    let response = state.http_client
-        .post("https://oauth2.googleapis.com/token")
+    let response = state
+        .http_client
+        .post(&state.config.google_oauth_token_url)
         .form(&payload)
         .send()
         .await
@@ -859,18 +1054,25 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
         return Err(format!("token refresh returned {status}: {body}"));
     }
 
-    let oauth_response: OAuthExchangeResponse = response.json().await.map_err(|error| format!("refresh response could not be parsed: {error}"))?;
+    let oauth_response: OAuthExchangeResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("refresh response could not be parsed: {error}"))?;
 
     Ok(OAuthToken {
         access_token: oauth_response.access_token,
         refresh_token: Some(refresh_token),
         token_type: oauth_response.token_type,
-        expires_at_unix: now_unix_seconds().saturating_add(oauth_response.expires_in.unwrap_or(3600)),
+        expires_at_unix: now_unix_seconds()
+            .saturating_add(oauth_response.expires_in.unwrap_or(3600)),
     })
 }
 
 fn now_unix_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
@@ -880,6 +1082,12 @@ fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        task::JoinHandle,
+    };
 
     fn event(title: &str, start: GoogleEventTime, end: GoogleEventTime) -> GoogleCalendarItem {
         GoogleCalendarItem {
@@ -903,6 +1111,48 @@ mod tests {
         }
     }
 
+    fn state_with_token_url(token_url: String) -> ApplicationState {
+        ApplicationState {
+            config: Arc::new(AppConfig {
+                weather_latitude: "58.14574000943632".to_string(),
+                weather_longitude: "8.06137337891726".to_string(),
+                calendar_id: "calendar".to_string(),
+                google_client_id: "client-id".to_string(),
+                google_client_secret: "client-secret".to_string(),
+                google_redirect_uri: "http://localhost:8080/oauth/callback".to_string(),
+                google_oauth_token_url: token_url,
+                slideshow_directory: DEFAULT_SLIDESHOW_DIRECTORY.to_string(),
+                slideshow_interval_seconds: 30,
+            }),
+            http_client: reqwest::Client::new(),
+            weather_cache: Arc::new(Mutex::new(None)),
+            calendar_cache: Arc::new(Mutex::new(None)),
+            oauth_tokens: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    async fn spawn_mock_token_server(response_body: &str) -> (String, JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let body = response_body.to_string();
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            request
+        });
+
+        (format!("http://{address}/token"), handle)
+    }
+
     #[test]
     fn accepts_only_browser_safe_slideshow_image_types() {
         assert_eq!(slideshow_content_type("photo.JPG"), Some("image/jpeg"));
@@ -915,9 +1165,18 @@ mod tests {
     fn accepts_only_paths_within_the_slideshow_directory() {
         let directory = FilePath::new("/srv/slideshow");
 
-        assert!(slideshow_path_is_within(directory, FilePath::new("/srv/slideshow/photo.jpg")));
-        assert!(!slideshow_path_is_within(directory, FilePath::new("/srv/slideshow-backup/photo.jpg")));
-        assert!(!slideshow_path_is_within(directory, FilePath::new("/etc/passwd")));
+        assert!(slideshow_path_is_within(
+            directory,
+            FilePath::new("/srv/slideshow/photo.jpg")
+        ));
+        assert!(!slideshow_path_is_within(
+            directory,
+            FilePath::new("/srv/slideshow-backup/photo.jpg")
+        ));
+        assert!(!slideshow_path_is_within(
+            directory,
+            FilePath::new("/etc/passwd")
+        ));
     }
 
     #[test]
@@ -937,7 +1196,11 @@ mod tests {
 
         assert_eq!(
             days.iter()
-                .map(|day| day.events.iter().map(|event| event.title.as_str()).collect::<Vec<_>>())
+                .map(|day| day
+                    .events
+                    .iter()
+                    .map(|event| event.title.as_str())
+                    .collect::<Vec<_>>())
                 .collect::<Vec<_>>(),
             vec![
                 vec!["Holiday", "Overnight"],
@@ -969,4 +1232,36 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-                      }
+
+    #[tokio::test]
+    async fn refresh_google_token_uses_refresh_token_and_updates_stored_tokens() {
+        let (token_url, request_handle) = spawn_mock_token_server(
+            r#"{"access_token":"new-access","token_type":"Bearer","expires_in":3600}"#,
+        )
+        .await;
+        let state = state_with_token_url(token_url);
+        let request = OAuthRefreshRequest {
+            refresh_token: "refresh-token-123".to_string(),
+        };
+
+        let Json(token) = refresh_google_token(State(state.clone()), Json(request.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(token.access_token, "new-access");
+        assert_eq!(token.token_type, "Bearer");
+        assert_eq!(token.refresh_token, Some(request.refresh_token.clone()));
+        assert!(token.expires_at_unix > now_unix_seconds());
+
+        let stored = state.oauth_tokens.lock().await.clone().unwrap();
+        assert_eq!(stored.access_token, "new-access");
+        assert_eq!(stored.token_type, "Bearer");
+        assert_eq!(stored.refresh_token, Some(request.refresh_token));
+
+        let received_request = request_handle.await.unwrap();
+        assert!(received_request.contains("grant_type=refresh_token"));
+        assert!(received_request.contains("refresh_token=refresh-token-123"));
+        assert!(received_request.contains("client_id=client-id"));
+        assert!(received_request.contains("client_secret=client-secret"));
+    }
+}
