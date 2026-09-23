@@ -45,7 +45,7 @@ User=joakim
 WorkingDirectory=/home/joakim/git/priv/raspberry-pi-3-info-screen
 Environment="GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com"
 Environment="GOOGLE_CLIENT_SECRET=your-google-client-secret"
-Environment="SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen"
+Environment="SLIDESHOW_DIRECTORY=/home/joakim/Pictures/info-screen"
 Environment="SLIDESHOW_INTERVAL_SECONDS=30"
 ExecStart=/home/joakim/.cargo/bin/cargo run --release
 Restart=on-failure
