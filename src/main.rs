@@ -245,7 +245,7 @@ fn slideshow_content_type(filename: &str) -> Option<&'static str> {
 }
 
 async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<SlideshowResponse>, (StatusCode, String)> {
-    let files = slideshow_files(&state.config.slideshow_directory).await?;
+    let files = slideshow_files(FilePath::new(&state.config.slideshow_directory)).await?;
     let images = files
         .iter()
         .filter_map(|path| path.file_name()?.to_str().map(str::to_string))
@@ -257,12 +257,24 @@ async fn get_slideshow(State(state): State<ApplicationState>) -> Result<Json<Sli
     }))
 }
 
-async fn slideshow_files(directory: &str) -> Result<Vec<PathBuf>, (StatusCode, String)> {
-    let mut entries = match tokio::fs::read_dir(directory).await {
-        Ok(entries) => entries,
+fn slideshow_path_is_within(directory: &FilePath, path: &FilePath) -> bool {
+    path.starts_with(directory)
+}
+
+async fn slideshow_files(directory: &FilePath) -> Result<Vec<PathBuf>, (StatusCode, String)> {
+    let directory = match tokio::fs::canonicalize(directory).await {
+        Ok(directory) => directory,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(vec![]);
         }
+        Err(error) => {
+            error!("Unable to resolve slideshow directory: {error}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string()));
+        }
+    };
+
+    let mut entries = match tokio::fs::read_dir(&directory).await {
+        Ok(entries) => entries,
         Err(error) => {
             error!("Unable to read slideshow directory: {error}");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "Unable to read slideshow directory.".to_string()));
@@ -281,7 +293,16 @@ async fn slideshow_files(directory: &str) -> Result<Vec<PathBuf>, (StatusCode, S
         let Some(filename) = entry.file_name().to_str().map(str::to_string) else { continue; };
 
         if file_type.is_file() && slideshow_content_type(&filename).is_some() {
-            images.push(entry.path());
+            let path = tokio::fs::canonicalize(entry.path()).await.map_err(|error| {
+                error!("Unable to resolve slideshow file: {error}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Unable to inspect slideshow directory.".to_string())
+            })?;
+
+            if slideshow_path_is_within(&directory, &path) {
+                images.push(path);
+            } else {
+                error!("Rejected slideshow file outside the configured directory: {filename}");
+            }
         }
     }
     images.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()));
@@ -292,7 +313,7 @@ async fn get_slideshow_image(
     State(state): State<ApplicationState>,
     Path(image_index): Path<usize>,
 ) -> Result<Response, (StatusCode, String)> {
-    let files = slideshow_files(&state.config.slideshow_directory).await?;
+    let files = slideshow_files(FilePath::new(&state.config.slideshow_directory)).await?;
     let path = files
         .get(image_index)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Slideshow image not found.".to_string()))?;
@@ -860,6 +881,15 @@ mod tests {
         assert_eq!(slideshow_content_type("photo.webp"), Some("image/webp"));
         assert_eq!(slideshow_content_type("photo.svg"), None);
         assert_eq!(slideshow_content_type("photo.txt"), None);
+    }
+
+    #[test]
+    fn accepts_only_paths_within_the_slideshow_directory() {
+        let directory = FilePath::new("/srv/slideshow");
+
+        assert!(slideshow_path_is_within(directory, FilePath::new("/srv/slideshow/photo.jpg")));
+        assert!(!slideshow_path_is_within(directory, FilePath::new("/srv/slideshow-backup/photo.jpg")));
+        assert!(!slideshow_path_is_within(directory, FilePath::new("/etc/passwd")));
     }
 
     #[test]
