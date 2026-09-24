@@ -23,6 +23,11 @@ For Google Calendar:
 5. Add http://localhost:8080 as an authorized JavaScript origin.
 6. Store the YOUR_GOOGLE_CLIENT_ID and YOUR_GOOGLE_CLIENT_SECRET some place safe, you need it later
 
+#### Environment variables
+- GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+- GOOGLE_CLIENT_SECRET=your-google-client-secret
+- SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen
+- SLIDESHOW_INTERVAL_SECONDS=30
 
 ### Build
 Build the code without running it
