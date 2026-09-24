@@ -14,6 +14,16 @@ Make sure you have cargo installed using this command:
 cargo --version
 ```
 
+#### One time google calendar setup
+For Google Calendar:
+1. Create a Google Cloud project.
+2. Enable the Google Calendar API.
+3. Create an API key.
+4. Create an OAuth client for a web application.
+5. Add http://localhost:8080 as an authorized JavaScript origin.
+6. Store the YOUR_GOOGLE_CLIENT_ID and YOUR_GOOGLE_CLIENT_SECRET some place safe, you need it later
+
+
 ### Build
 Build the code without running it
 ```bash script
@@ -26,7 +36,6 @@ cargo run
 ```
 Avaiable at
 http://localhost:8080
-
 
 ### Run on startup Raspberry Pi 3
 ```bash script
