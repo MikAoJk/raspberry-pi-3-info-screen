@@ -17,23 +17,6 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
-  dependabot-build:
-    if: github.actor == 'dependabot[bot]'
-    name: Dependabot-build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-      - name: Audit dependencies
-        uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build application
-        run: cargo build
   build:
     if: github.actor != 'dependabot[bot]'
     name: Build
