@@ -13,3 +13,4 @@ log4rs = { version = "1.4.0", features = ["json_encoder"] }
 reqwest = { version = "0.13.5", features = ["form", "json", "query"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
+serde_json = "1.0"

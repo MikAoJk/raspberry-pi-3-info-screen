@@ -1,7 +1,8 @@
 mod log;
 
 use std::{error,env, fs, path::{Path as FilePath, PathBuf}, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
-
+use std::fs::File;
+use std::io::BufReader;
 use axum::{
     body::Body,
     extract::{Path, Query, State},
@@ -79,6 +80,7 @@ struct AppConfig {
     google_redirect_uri: String,
     slideshow_directory: String,
     slideshow_interval_seconds: u64,
+    dev_mode: bool,
 }
 
 impl AppConfig {
@@ -96,6 +98,7 @@ impl AppConfig {
                 .and_then(|value| value.parse().ok())
                 .filter(|seconds| *seconds > 0)
                 .unwrap_or(30),
+            dev_mode: env::var("DEV_MODE").unwrap_or_default() == "true",
         }
     }
 
@@ -431,10 +434,20 @@ async fn google_oauth_callback(
 }
 
 async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
-    let weather = fetch_weather_snapshot(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
-    let calendar = fetch_calendar_aggregation(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+    if state.config.dev_mode {
+        let file = File::open("test-data/dashboard-response.json")
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let reader = BufReader::new(file);
+        let dashboard_response: DashboardResponse = serde_json::from_reader(reader)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    Ok(Json(DashboardResponse { weather, calendar }))
+        Ok(Json(dashboard_response))
+    } else {
+        let weather = fetch_weather_snapshot(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+        let calendar = fetch_calendar_aggregation(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+
+        Ok(Json(DashboardResponse { weather, calendar }))
+    }
 }
 
 async fn fetch_weather_snapshot(state: &ApplicationState) -> Result<WeatherSnapshot, String> {
@@ -701,7 +714,7 @@ async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnaps
     })
 }
 
-fn resolve_weather_icon(symbol_code: &str) -> String {
+pub fn resolve_weather_icon(symbol_code: &str) -> String {
     let icons = std::collections::HashMap::from([
         ("clearsky_day", "☀️"),
         ("clearsky_night", "🌙"),

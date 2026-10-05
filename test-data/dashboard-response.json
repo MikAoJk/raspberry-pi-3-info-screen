@@ -1,0 +1,341 @@
+{
+  "weather": {
+    "description": "Nå: 14.2°C",
+    "icon": "☁️",
+    "current_temperature_c": 14.2,
+    "hourly": [
+      {
+        "time": "2026-10-05T05:00:00Z",
+        "temperature_c": 14.2,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T06:00:00Z",
+        "temperature_c": 14.3,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T07:00:00Z",
+        "temperature_c": 14.4,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T08:00:00Z",
+        "temperature_c": 14.4,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T09:00:00Z",
+        "temperature_c": 14.6,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T10:00:00Z",
+        "temperature_c": 14.8,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T11:00:00Z",
+        "temperature_c": 15.0,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T12:00:00Z",
+        "temperature_c": 15.3,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T13:00:00Z",
+        "temperature_c": 15.7,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T14:00:00Z",
+        "temperature_c": 15.5,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T15:00:00Z",
+        "temperature_c": 15.1,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T16:00:00Z",
+        "temperature_c": 14.9,
+        "icon": "☁️"
+      },
+      {
+        "time": "2026-10-05T17:00:00Z",
+        "temperature_c": 14.7,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-05T18:00:00Z",
+        "temperature_c": 14.2,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-05T19:00:00Z",
+        "temperature_c": 13.9,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-05T20:00:00Z",
+        "temperature_c": 13.0,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-05T21:00:00Z",
+        "temperature_c": 12.0,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-05T22:00:00Z",
+        "temperature_c": 11.6,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-05T23:00:00Z",
+        "temperature_c": 11.6,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-06T00:00:00Z",
+        "temperature_c": 11.6,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T01:00:00Z",
+        "temperature_c": 11.5,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-06T02:00:00Z",
+        "temperature_c": 11.3,
+        "icon": "⛅"
+      },
+      {
+        "time": "2026-10-06T03:00:00Z",
+        "temperature_c": 11.1,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T04:00:00Z",
+        "temperature_c": 10.9,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T05:00:00Z",
+        "temperature_c": 10.6,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T06:00:00Z",
+        "temperature_c": 10.5,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T07:00:00Z",
+        "temperature_c": 10.7,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T08:00:00Z",
+        "temperature_c": 11.6,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T09:00:00Z",
+        "temperature_c": 12.6,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T10:00:00Z",
+        "temperature_c": 13.3,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T11:00:00Z",
+        "temperature_c": 13.8,
+        "icon": "🌤️"
+      },
+      {
+        "time": "2026-10-06T12:00:00Z",
+        "temperature_c": 14.2,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T13:00:00Z",
+        "temperature_c": 14.3,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T14:00:00Z",
+        "temperature_c": 14.0,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T15:00:00Z",
+        "temperature_c": 13.6,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T16:00:00Z",
+        "temperature_c": 12.8,
+        "icon": "☀️"
+      },
+      {
+        "time": "2026-10-06T17:00:00Z",
+        "temperature_c": 11.8,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T18:00:00Z",
+        "temperature_c": 10.9,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T19:00:00Z",
+        "temperature_c": 10.2,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T20:00:00Z",
+        "temperature_c": 9.5,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T21:00:00Z",
+        "temperature_c": 8.7,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T22:00:00Z",
+        "temperature_c": 7.9,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-06T23:00:00Z",
+        "temperature_c": 7.2,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-07T00:00:00Z",
+        "temperature_c": 6.8,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-07T01:00:00Z",
+        "temperature_c": 6.5,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-07T02:00:00Z",
+        "temperature_c": 6.1,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-07T03:00:00Z",
+        "temperature_c": 5.7,
+        "icon": "🌙"
+      },
+      {
+        "time": "2026-10-07T04:00:00Z",
+        "temperature_c": 5.4,
+        "icon": "🌙"
+      }
+    ]
+  },
+  "calendar": {
+    "auth_required": false,
+    "message": null,
+    "days": [
+      {
+        "date": "2026-10-05",
+        "events": [
+          {
+            "title": "Fotografering i bhg",
+            "start": "2026-10-05T09:00:00+02:00",
+            "end": "2026-10-05T10:00:00+02:00"
+          },
+          {
+            "title": "Løpe",
+            "start": "2026-10-05T16:45:00+02:00",
+            "end": "2026-10-05T17:45:00+02:00"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-06",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          },
+          {
+            "title": "Trening Joakim",
+            "start": "2026-10-06T19:30:00+02:00",
+            "end": "2026-10-06T21:30:00+02:00"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-07",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-08",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          },
+          {
+            "title": "Burdsag🎈",
+            "start": "2026-10-08",
+            "end": "2026-10-09"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-09",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-10",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          }
+        ]
+      },
+      {
+        "date": "2026-10-11",
+        "events": [
+          {
+            "title": "Austevoll tur",
+            "start": "2026-10-06T07:00:00+02:00",
+            "end": "2026-10-12T08:00:00+02:00"
+          }
+        ]
+      }
+    ],
+    "fetched_at": "2026-10-05T06:21:58+00:00"
+  }
+}

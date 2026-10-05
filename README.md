@@ -35,9 +35,9 @@ Build the code without running it
 cargo build
 ```
 
-#### Running the application locally
+#### Running the application locally in dev mode
 ```bash script
-cargo run
+DEV_MODE=true cargo run
 ```
 Avaiable at
 http://localhost:8080
