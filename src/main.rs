@@ -267,6 +267,10 @@ async fn root() -> topcoat::Result<Html<String>> {
 fn api_error_response(status: StatusCode, message: String) -> Response {
     let mut response = Response::new(Body::from(message));
     *response.status_mut() = status;
+    response.headers_mut().insert(
+        topcoat::router::header::CONTENT_TYPE,
+        topcoat::router::HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
     response
 }
 
@@ -346,8 +350,8 @@ async fn route_get_slideshow_image(cx: &Cx) -> topcoat::Result<Response> {
         .and_then(|value| value.parse::<usize>().ok());
     let Some(image_index) = image_index else {
         return Ok(api_error_response(
-            StatusCode::NOT_FOUND,
-            "Slideshow image not found.".to_string(),
+            StatusCode::BAD_REQUEST,
+            "Invalid slideshow image index.".to_string(),
         ));
     };
 

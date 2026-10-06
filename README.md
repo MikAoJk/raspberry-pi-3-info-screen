@@ -1,6 +1,8 @@
 # Raspberry Pi 3 info screen
 This is a personal setup that I use at home, with my Raspberry Pi 3, to get some info we need on a day-to-day basis
 
+The HTTP server and routes use [Topcoat](https://github.com/tokio-rs/topcoat). The dashboard remains a static HTML page served by the Topcoat application.
+
 ### Prerequisites
 Make sure you have the rust installed using this command:
 #### Rust
