@@ -74,9 +74,6 @@
 
         .calendar-card {
             grid-column: 1 / -1;
-        }
-
-        .calendar-card {
             min-height: 0;
         }
 
@@ -290,6 +287,15 @@
                 overflow: hidden;
             }
 
+            .calendar-card {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .calendar-card h2 {
+                flex-shrink: 0;
+            }
+
             #clock {
                 font-size: clamp(4rem, 11vh, 5.5rem);
                 line-height: 1;
@@ -350,29 +356,42 @@
             }
 
             #events {
-                height: calc(100% - 34px);
-                overflow: auto;
+                flex: 1;
+                overflow: hidden;
                 margin-top: 10px;
             }
 
             .week-grid {
                 height: 100%;
+                min-height: 0;
+                grid-template-columns: repeat(7, minmax(0, 1fr));
+                grid-template-rows: minmax(0, 1fr);
                 gap: 8px;
             }
 
             .day-group {
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
                 padding: 8px;
                 overflow: hidden;
             }
 
             .day-header {
+                flex-shrink: 0;
                 font-size: 0.8rem;
                 margin-bottom: 6px;
             }
 
+            .day-events-viewport {
+                flex: 1;
+                min-height: 0;
+                overflow: hidden;
+            }
+
             .day-events {
                 gap: 6px;
-                overflow: auto;
+                transform-origin: top left;
             }
 
             .event {
@@ -635,11 +654,45 @@
                 }
             }
 
-            group.appendChild(dayEvents);
+            const viewport = document.createElement("div");
+            viewport.className = "day-events-viewport";
+            viewport.appendChild(dayEvents);
+            group.appendChild(viewport);
             weekGrid.appendChild(group);
         }
 
         container.appendChild(weekGrid);
+        fitCalendarEvents();
+    }
+
+    function fitCalendarEvents() {
+        const compact = window.matchMedia("(min-width: 801px) and (max-height: 700px)").matches;
+
+        for (const events of document.querySelectorAll(".day-events")) {
+            events.style.width = "";
+            events.style.transform = "";
+
+            const viewport = events.parentElement;
+            if (!compact || viewport.clientHeight === 0 || events.scrollHeight <= viewport.clientHeight) {
+                continue;
+            }
+
+            // Widen before scaling so titles can reflow without wasting horizontal space.
+            let lower = viewport.clientHeight / (events.scrollHeight + 1);
+            let upper = 1;
+            for (let iteration = 0; iteration < 14; iteration++) {
+                const scale = (lower + upper) / 2;
+                events.style.width = `${viewport.clientWidth / scale}px`;
+                if (events.scrollHeight * scale <= viewport.clientHeight) {
+                    lower = scale;
+                } else {
+                    upper = scale;
+                }
+            }
+
+            events.style.width = `${viewport.clientWidth / lower}px`;
+            events.style.transform = `scale(${lower})`;
+        }
     }
 
     function formatCalendarEventTime(event) {
@@ -735,6 +788,13 @@
         renderWeather(data.weather || {});
         renderCalendar(data.calendar || {});
     }
+
+    let calendarFitFrame;
+    const calendarResizeObserver = new ResizeObserver(() => {
+        cancelAnimationFrame(calendarFitFrame);
+        calendarFitFrame = requestAnimationFrame(fitCalendarEvents);
+    });
+    calendarResizeObserver.observe(document.getElementById("events"));
 
     updateClock();
     setInterval(updateClock, 1000);
