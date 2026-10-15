@@ -438,8 +438,10 @@ async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<Das
         let file = File::open("test-data/dashboard-response.json")
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let reader = BufReader::new(file);
-        let dashboard_response: DashboardResponse = serde_json::from_reader(reader)
+        let mut dashboard_response: DashboardResponse = serde_json::from_reader(reader)
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rebase_hourly_forecast_dates(&mut dashboard_response.weather, Utc::now().date_naive())
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
         Ok(Json(dashboard_response))
     } else {
@@ -448,6 +450,28 @@ async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<Das
 
         Ok(Json(DashboardResponse { weather, calendar }))
     }
+}
+
+fn rebase_hourly_forecast_dates(weather: &mut WeatherSnapshot, target_date: NaiveDate) -> Result<(), String> {
+    let Some(first) = weather.hourly.first() else {
+        return Ok(());
+    };
+    let first_time = DateTime::parse_from_rfc3339(&first.time)
+        .map_err(|error| format!("Invalid hourly forecast time '{}': {error}", first.time))?
+        .with_timezone(&Utc);
+    let day_offset = target_date.signed_duration_since(first_time.date_naive());
+
+    for (index, forecast) in weather.hourly.iter_mut().enumerate() {
+        let time = DateTime::parse_from_rfc3339(&forecast.time)
+            .map_err(|error| format!("Invalid hourly forecast time at index {index} ('{}'): {error}", forecast.time))?
+            .with_timezone(&Utc);
+        forecast.time = time
+            .checked_add_signed(day_offset)
+            .ok_or_else(|| format!("Hourly forecast time at index {index} is out of range"))?
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
+    }
+
+    Ok(())
 }
 
 async fn fetch_weather_snapshot(state: &ApplicationState) -> Result<WeatherSnapshot, String> {
@@ -913,6 +937,35 @@ mod tests {
         GoogleEventTime {
             date: None,
             date_time: Some(date_time.to_string()),
+        }
+    }
+
+    #[test]
+    fn rebases_fixture_forecast_dates_without_changing_hourly_data() {
+        let original: DashboardResponse =
+            serde_json::from_str(include_str!("../test-data/dashboard-response.json")).unwrap();
+        let mut rebased = original.clone();
+        let target_date = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+
+        rebase_hourly_forecast_dates(&mut rebased.weather, target_date).unwrap();
+
+        let original_hourly = &original.weather.hourly;
+        let rebased_hourly = &rebased.weather.hourly;
+        assert_eq!(rebased_hourly.len(), 48);
+        assert_eq!(
+            DateTime::parse_from_rfc3339(&rebased_hourly[0].time)
+                .unwrap()
+                .date_naive(),
+            target_date
+        );
+        for (original, rebased) in original_hourly.iter().zip(rebased_hourly) {
+            assert_eq!(original.temperature_c, rebased.temperature_c);
+            assert_eq!(original.icon, rebased.icon);
+        }
+        for pair in rebased_hourly.windows(2) {
+            let previous = DateTime::parse_from_rfc3339(&pair[0].time).unwrap();
+            let next = DateTime::parse_from_rfc3339(&pair[1].time).unwrap();
+            assert_eq!(next - previous, chrono::Duration::hours(1));
         }
     }
 
