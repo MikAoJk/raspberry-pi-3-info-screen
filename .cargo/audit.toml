@@ -5,5 +5,4 @@ ignore = [
     "RUSTSEC-2026-0347", # `rustls` Buffered application data sent to outer server after ECH rejectio
     "RUSTSEC-2026-0346", # `rustls` `Debug` impls for client session values expose TLS secrets
     "RUSTSEC-2026-0348", # `rustls` Brotli certificate decompression can allocate up to 1 GiB before authentication
-
 ]

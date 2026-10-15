@@ -541,8 +541,9 @@
             const forecasts = document.createElement("div");
             forecasts.className = "weather-day-forecasts";
 
-            for (let index = 0; index < entries.length; index += 4) {
-                const period = entries.slice(index, index + 4);
+            const maxCardsPerDay = 3;
+            for (let index = 0; index < Math.min(entries.length, maxCardsPerDay * 8); index += 8) {
+                const period = entries.slice(index, index + 8);
                 const entry = period[0];
                 const item = document.createElement("div");
                 item.className = "forecast-item";
