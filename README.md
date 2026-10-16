@@ -42,9 +42,6 @@ DEV_MODE=true cargo run
 Avaiable at
 http://localhost:8080
 
-### Example output 
-![screenshot.png](screenshot.png)
-
 ### Run on startup Raspberry Pi 3
 ```bash script
 sudo nano /etc/systemd/system/rust_app.service
