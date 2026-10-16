@@ -694,14 +694,21 @@ struct MetNoSummary {
 }
 
 async fn fetch_weather_from_met(state: &ApplicationState) -> Result<WeatherSnapshot, String> {
-    let url = format!(
-        "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={}&lon={}",
-        state.config.weather_latitude,
-        state.config.weather_longitude
-    );
+    #[derive(Serialize)]
+    struct MetNoLocationPayload {
+        lat: f64,
+        lon: f64,
+    }
+
+    let url = "https://api.met.no/weatherapi/locationforecast/2.0/compact";
+    let payload = MetNoLocationPayload {
+        lat: state.config.weather_latitude,
+        lon: state.config.weather_longitude,
+    };
 
     let response = state.http_client
-        .get(url)
+        .post(url)
+        .json(&payload)
         .header("User-Agent", "raspberry-pi-info-screen/1.0")
         .send()
         .await
