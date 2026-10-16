@@ -605,8 +605,8 @@
             const prompt = document.createElement("div");
             prompt.className = "auth-prompt";
             prompt.innerHTML = `
-                <p>${calendar.message || "Google Calendar authorization required."}</p>
-                <button id="google-auth-button" type="button">Authorize Google Calendar</button>
+                <p>${calendar.message || "Autorisasjon for Google Kalender kreves"}</p>
+                <button id="google-auth-button" type="button">Autoriser Google-kalender</button>
             `;
             container.appendChild(prompt);
             document.getElementById("google-auth-button").addEventListener("click", startGoogleAuth);
