@@ -29,6 +29,12 @@ For Google Calendar:
 - SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen
 - SLIDESHOW_INTERVAL_SECONDS=30
 
+Weather coordinates are configured with `WEATHER_LATITUDE` (default: `58.14574000943632`)
+and `WEATHER_LONGITUDE` (default: `8.06137337891726`). Unset variables use these defaults.
+Values are parsed once at startup and must be finite numbers within `-90..=90` for latitude
+and `-180..=180` for longitude. Empty, malformed, non-Unicode, non-finite, or out-of-range
+values stop startup with an error naming the invalid variable.
+
 ### Build
 Build the code without running it
 ```bash script
