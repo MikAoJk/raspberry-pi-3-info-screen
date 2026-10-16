@@ -27,7 +27,7 @@ const DEFAULT_SLIDESHOW_DIRECTORY: &str = "static/slideshow";
 async fn main() -> Result<(), Box<dyn error::Error>> {
     init_log4rs();
 
-    let application_state = ApplicationState::new();
+    let application_state = ApplicationState::new()?;
 
     let app = Router::new()
         .route("/", get(root))
@@ -59,21 +59,21 @@ pub struct ApplicationState {
 }
 
 impl ApplicationState {
-    fn new() -> Self {
-        Self {
-            config: Arc::new(AppConfig::from_env()),
+    fn new() -> Result<Self, std::io::Error> {
+        Ok(Self {
+            config: Arc::new(AppConfig::from_env()?),
             http_client: reqwest::Client::new(),
             weather_cache: Arc::new(Mutex::new(None)),
             calendar_cache: Arc::new(Mutex::new(None)),
             oauth_tokens: Arc::new(Mutex::new(None)),
-        }
+        })
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct AppConfig {
-    weather_latitude: String,
-    weather_longitude: String,
+    weather_latitude: f64,
+    weather_longitude: f64,
     calendar_id: String,
     google_client_id: String,
     google_client_secret: String,
@@ -84,10 +84,14 @@ struct AppConfig {
 }
 
 impl AppConfig {
-    fn from_env() -> Self {
-        Self {
-            weather_latitude: env::var("WEATHER_LATITUDE").unwrap_or_else(|_| "58.14574000943632".to_string()),
-            weather_longitude: env::var("WEATHER_LONGITUDE").unwrap_or_else(|_| "8.06137337891726".to_string()),
+    fn from_env() -> Result<Self, std::io::Error> {
+        Ok(Self {
+            weather_latitude: Self::weather_coordinate(
+                "WEATHER_LATITUDE", env::var("WEATHER_LATITUDE"), 58.14574000943632, 90.0,
+            )?,
+            weather_longitude: Self::weather_coordinate(
+                "WEATHER_LONGITUDE", env::var("WEATHER_LONGITUDE"), 8.06137337891726, 180.0,
+            )?,
             calendar_id: env::var("CALENDAR_ID").unwrap_or_else(|_| "f2469c230e7c5d747c481a395b71f16b70f6b4c8d20d2bcb4348bc4e34eb814f@group.calendar.google.com".to_string()),
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
@@ -99,6 +103,29 @@ impl AppConfig {
                 .filter(|seconds| *seconds > 0)
                 .unwrap_or(30),
             dev_mode: env::var("DEV_MODE").unwrap_or_default() == "true",
+        })
+    }
+
+    fn weather_coordinate(
+        name: &str,
+        value: Result<String, env::VarError>,
+        default: f64,
+        limit: f64,
+    ) -> Result<f64, std::io::Error> {
+        let invalid_value = || std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{name} must be a finite number between -{limit} and {limit}"),
+        );
+        match value {
+            Ok(value) => {
+                let coordinate = value.trim().parse::<f64>().map_err(|_| invalid_value())?;
+                if !coordinate.is_finite() || !(-limit..=limit).contains(&coordinate) {
+                    return Err(invalid_value());
+                }
+                Ok(coordinate)
+            }
+            Err(env::VarError::NotPresent) => Ok(default),
+            Err(env::VarError::NotUnicode(_)) => Err(invalid_value()),
         }
     }
 
@@ -918,6 +945,55 @@ fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn weather_coordinates_use_defaults_only_when_unset() {
+        for (name, default, limit) in [
+            ("WEATHER_LATITUDE", 58.14574000943632, 90.0),
+            ("WEATHER_LONGITUDE", 8.06137337891726, 180.0),
+        ] {
+            assert_eq!(
+                AppConfig::weather_coordinate(name, Err(env::VarError::NotPresent), default, limit).unwrap(),
+                default,
+            );
+            assert!(AppConfig::weather_coordinate(
+                name, Err(env::VarError::NotUnicode(std::ffi::OsString::new())), default, limit,
+            ).is_err());
+        }
+    }
+
+    #[test]
+    fn weather_coordinates_accept_numbers_and_inclusive_bounds() {
+        for (name, limit) in [("WEATHER_LATITUDE", 90.0), ("WEATHER_LONGITUDE", 180.0)] {
+            for coordinate in [-limit, -8.5, 0.0, 58.14574000943632, limit] {
+                assert_eq!(
+                    AppConfig::weather_coordinate(name, Ok(coordinate.to_string()), 0.0, limit).unwrap(),
+                    coordinate,
+                );
+            }
+            assert_eq!(
+                AppConfig::weather_coordinate(name, Ok(" 8.5 ".to_string()), 0.0, limit).unwrap(),
+                8.5,
+            );
+        }
+    }
+
+    #[test]
+    fn weather_coordinates_reject_invalid_values_with_clear_errors() {
+        for (name, limit) in [("WEATHER_LATITUDE", 90.0), ("WEATHER_LONGITUDE", 180.0)] {
+            for value in ["", " ", "invalid", "NaN", "inf", "-inf", "1e999", "181", "-181"] {
+                let error = AppConfig::weather_coordinate(name, Ok(value.to_string()), 0.0, limit).unwrap_err();
+                assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+                assert_eq!(
+                    error.to_string(),
+                    format!("{name} must be a finite number between -{limit} and {limit}"),
+                );
+            }
+        }
+        for value in ["90.1", "-90.1"] {
+            assert!(AppConfig::weather_coordinate("WEATHER_LATITUDE", Ok(value.to_string()), 0.0, 90.0).is_err());
+        }
+    }
+
     fn event(title: &str, start: GoogleEventTime, end: GoogleEventTime) -> GoogleCalendarItem {
         GoogleCalendarItem {
             summary: Some(title.to_string()),
@@ -1035,4 +1111,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-                      }
+            }
