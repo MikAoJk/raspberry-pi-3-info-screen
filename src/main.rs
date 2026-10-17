@@ -22,6 +22,7 @@ use crate::log::init_log4rs;
 const WEATHER_CACHE_TTL: u64 = 15 * 60;
 const CALENDAR_CACHE_TTL: u64 = 15 * 60;
 const DEFAULT_SLIDESHOW_DIRECTORY: &str = "static/slideshow";
+const DEFAULT_GOOGLE_TOKEN_FILE: &str = "data/google-oauth-token.json";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn error::Error>> {
@@ -60,14 +61,85 @@ pub struct ApplicationState {
 
 impl ApplicationState {
     fn new() -> Result<Self, std::io::Error> {
+        let config = AppConfig::from_env()?;
+        let oauth_tokens = load_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE));
         Ok(Self {
-            config: Arc::new(AppConfig::from_env()?),
+            config: Arc::new(config),
             http_client: reqwest::Client::new(),
             weather_cache: Arc::new(Mutex::new(None)),
             calendar_cache: Arc::new(Mutex::new(None)),
-            oauth_tokens: Arc::new(Mutex::new(None)),
+            oauth_tokens: Arc::new(Mutex::new(oauth_tokens)),
         })
     }
+
+    async fn set_oauth_token(&self, token: OAuthToken) {
+        let mut guard = self.oauth_tokens.lock().await;
+        if let Err(error) = save_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE), &token) {
+            error!("Failed to persist Google OAuth token to {DEFAULT_GOOGLE_TOKEN_FILE}: {error}");
+        }
+        *guard = Some(token);
+    }
+}
+
+fn load_oauth_token(path: &FilePath) -> Option<OAuthToken> {
+    match fs::read_to_string(path) {
+        Ok(contents) => match serde_json::from_str::<OAuthToken>(&contents) {
+            Ok(token) => {
+                info!("Loaded persisted Google OAuth token from {}", path.display());
+                Some(token)
+            }
+            Err(error) => {
+                error!("Ignoring unreadable Google OAuth token file {}: {error}", path.display());
+                None
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            info!("No persisted Google OAuth token found at {}", path.display());
+            None
+        }
+        Err(error) => {
+            error!("Failed to read Google OAuth token file {}: {error}", path.display());
+            None
+        }
+    }
+}
+
+fn save_oauth_token(path: &FilePath, token: &OAuthToken) -> Result<(), std::io::Error> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(parent)?;
+    }
+
+    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
+    temp_name.push(".tmp");
+    let temp_path = path.with_file_name(temp_name);
+    let _ = fs::remove_file(&temp_path);
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = (|| {
+        let mut file = options.open(&temp_path)?;
+        file.write_all(&serde_json::to_vec(token)?)?;
+        file.sync_all()?;
+        fs::rename(&temp_path, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -441,7 +513,7 @@ async fn google_oauth_callback(
     let code = query.code.ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing Google OAuth code.".to_string()))?;
     let redirect_uri = state.config.google_redirect_uri.clone();
     let token = exchange_google_code_for_token(&state, code, redirect_uri).await?;
-    *state.oauth_tokens.lock().await = Some(token);
+    state.set_oauth_token(token).await;
 
     let html = r#"
         <!doctype html>
@@ -535,8 +607,7 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
 
     let access_token = if tokens.is_expired() {
         let refreshed = refresh_google_access_token(state, tokens.refresh_token.clone().unwrap_or_default()).await?;
-        let mut lock = state.oauth_tokens.lock().await;
-        *lock = Some(refreshed.clone());
+        state.set_oauth_token(refreshed.clone()).await;
         refreshed.access_token
     } else {
         tokens.access_token
@@ -798,7 +869,7 @@ async fn store_google_token(
 ) -> Result<Json<OAuthToken>, (StatusCode, String)> {
     let redirect_uri = request.redirect_uri.clone().unwrap_or_else(|| state.config.google_redirect_uri.clone());
     let token = exchange_google_code_for_token(&state, request.code, redirect_uri).await?;
-    *state.oauth_tokens.lock().await = Some(token.clone());
+    state.set_oauth_token(token.clone()).await;
     Ok(Json(token))
 }
 
@@ -890,7 +961,7 @@ async fn refresh_google_token(
         expires_at_unix: now_unix_seconds().saturating_add(oauth_response.expires_in.unwrap_or(3600)),
     };
 
-    *state.oauth_tokens.lock().await = Some(token.clone());
+    state.set_oauth_token(token.clone()).await;
     Ok(Json(token))
 }
 
@@ -944,6 +1015,39 @@ fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oauth_token_is_persisted_and_reloaded_with_owner_only_permissions() {
+        let directory = env::temp_dir().join(format!("infoscreen-token-test-{}-{}", std::process::id(), now_unix_seconds()));
+        let path = directory.join("nested").join("token.json");
+        assert!(load_oauth_token(&path).is_none());
+
+        let token = OAuthToken {
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 42,
+        };
+        save_oauth_token(&path, &token).unwrap();
+        save_oauth_token(&path, &token).unwrap();
+
+        let loaded = load_oauth_token(&path).unwrap();
+        assert_eq!(loaded.access_token, "access");
+        assert_eq!(loaded.refresh_token.as_deref(), Some("refresh"));
+        assert_eq!(loaded.expires_at_unix, 42);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+
+        fs::write(&path, "not json").unwrap();
+        assert!(load_oauth_token(&path).is_none());
+
+        fs::remove_dir_all(&directory).unwrap();
+    }
 
     #[test]
     fn weather_coordinates_use_defaults_only_when_unset() {
@@ -1111,4 +1215,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-            }
+        }
