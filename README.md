@@ -3,16 +3,15 @@ This is a personal setup that I use at home, with my Raspberry Pi 3 and my displ
 
 ### Prerequisites
 Make sure you have the rust installed using this command:
-#### Rust
-```bash script
-rustc --version
-```
+### Rust and Cargo
+Verify rust and cargo is setup:
 
-#### Cargo
-Make sure you have cargo installed using this command:
-```bash script
+```bash
+rustc --version
 cargo --version
 ```
+
+Install Rust/Cargo with [rustup](https://rust-lang.org/tools/install/) if needed.
 
 #### One time google calendar setup
 For Google Calendar:
