@@ -83,13 +83,21 @@ impl ApplicationState {
 
 fn load_oauth_token(path: &FilePath) -> Option<OAuthToken> {
     match fs::read_to_string(path) {
-        Ok(contents) => match serde_json::from_str::<OAuthToken>(&contents) {
+        Ok(contents) => match serde_json::from_str::<OAuthToken>(&contents).and_then(|token| {
+            if token.access_token.trim().is_empty() || token.token_type.trim().is_empty() {
+                return Err(<serde_json::Error as serde::de::Error>::custom("empty OAuth token credentials"));
+            }
+            Ok(token)
+        }) {
             Ok(token) => {
                 info!("Loaded persisted Google OAuth token from {}", path.display());
                 Some(token)
             }
             Err(error) => {
-                error!("Ignoring unreadable Google OAuth token file {}: {error}", path.display());
+                error!("Invalid Google OAuth token file {}: {error}. Removing it and requiring fresh Google authorization.", path.display());
+                if let Err(error) = fs::remove_file(path) {
+                    error!("Failed to remove invalid Google OAuth token file {}: {error}. A successful authorization will attempt to overwrite it.", path.display());
+                }
                 None
             }
         },
@@ -1043,8 +1051,27 @@ mod tests {
             assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
         }
 
-        fs::write(&path, "not json").unwrap();
-        assert!(load_oauth_token(&path).is_none());
+        for invalid in [
+            "not json",
+            "{}",
+            r#"{"refresh_token":"refresh"}"#,
+            r#"{"access_token":"","token_type":"Bearer","expires_at_unix":42}"#,
+            r#"{"access_token":"access","token_type":" ","expires_at_unix":42}"#,
+        ] {
+            fs::write(&path, invalid).unwrap();
+            assert!(load_oauth_token(&path).is_none());
+            assert!(!path.exists());
+
+            save_oauth_token(&path, &token).unwrap();
+            let replacement = load_oauth_token(&path).unwrap();
+            assert_eq!(replacement.access_token, token.access_token);
+            assert_eq!(replacement.refresh_token, token.refresh_token);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            }
+        }
 
         fs::remove_dir_all(&directory).unwrap();
     }
@@ -1215,4 +1242,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-        }
+            }
