@@ -765,7 +765,11 @@
             prompt.className = "auth-prompt";
             const description = document.createElement("p");
             description.textContent = details;
-            prompt.appendChild(description);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Autoriser Google-kalender";
+            button.addEventListener("click", startGoogleAuth);
+            prompt.append(description, button);
             const events = document.getElementById("events");
             events.replaceChildren(prompt);
             return;
@@ -785,6 +789,8 @@
         window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
 
+    let googleAuthAttempted = false;
+
     async function loadDashboard() {
         const response = await fetch("/api/dashboard");
         if (!response.ok) {
@@ -794,6 +800,12 @@
         const data = await response.json();
         renderWeather(data.weather || {});
         renderCalendar(data.calendar || {});
+        if (data.calendar?.auth_required && !googleAuthAttempted) {
+            googleAuthAttempted = true;
+            await startGoogleAuth().catch((error) => {
+                console.error("Automatic Google authorization unavailable.", error);
+            });
+        }
     }
 
     let calendarFitFrame;
