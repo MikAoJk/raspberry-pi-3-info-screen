@@ -604,10 +604,13 @@
         if (calendar && calendar.auth_required) {
             const prompt = document.createElement("div");
             prompt.className = "auth-prompt";
-            prompt.innerHTML = `
-                <p>${calendar.message || "Autorisasjon for Google Kalender kreves"}</p>
-                <button id="google-auth-button" type="button">Autoriser Google-kalender</button>
-            `;
+            const message = document.createElement("p");
+            message.textContent = calendar.message || "Autorisasjon for Google Kalender kreves";
+            const button = document.createElement("button");
+            button.id = "google-auth-button";
+            button.type = "button";
+            button.textContent = "Autoriser Google-kalender";
+            prompt.append(message, button);
             container.appendChild(prompt);
             document.getElementById("google-auth-button").addEventListener("click", startGoogleAuth);
             return;
@@ -645,10 +648,12 @@
 
                     const time = formatCalendarEventTime(event);
 
-                    item.innerHTML = `
-                        <strong>${event.title || "Untitled event"}</strong>
-                        <div class="event-time">${time}</div>
-                    `;
+                    const title = document.createElement("strong");
+                    title.textContent = event.title || "Untitled event";
+                    const eventTime = document.createElement("div");
+                    eventTime.className = "event-time";
+                    eventTime.textContent = time;
+                    item.append(title, eventTime);
 
                     dayEvents.appendChild(item);
                 }
@@ -756,11 +761,13 @@
         if (!response.ok) {
             const message = await response.text();
             const details = message || "Google OAuth is not configured on the server.";
-            document.getElementById("events").innerHTML = `
-                <div class="auth-prompt">
-                    <p>${details}</p>
-                </div>
-            `;
+            const prompt = document.createElement("div");
+            prompt.className = "auth-prompt";
+            const description = document.createElement("p");
+            description.textContent = details;
+            prompt.appendChild(description);
+            const events = document.getElementById("events");
+            events.replaceChildren(prompt);
             return;
         }
 
