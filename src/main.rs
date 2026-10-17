@@ -62,7 +62,7 @@ pub struct ApplicationState {
 impl ApplicationState {
     fn new() -> Result<Self, std::io::Error> {
         let config = AppConfig::from_env()?;
-        let oauth_tokens = load_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE));
+        let oauth_tokens = load_oauth_token(&config.google_token_file);
         Ok(Self {
             config: Arc::new(config),
             http_client: reqwest::Client::new(),
@@ -74,8 +74,11 @@ impl ApplicationState {
 
     async fn set_oauth_token(&self, token: OAuthToken) {
         let mut guard = self.oauth_tokens.lock().await;
-        if let Err(error) = save_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE), &token) {
-            error!("Failed to persist Google OAuth token to {DEFAULT_GOOGLE_TOKEN_FILE}: {error}");
+        if let Err(error) = save_oauth_token(&self.config.google_token_file, &token) {
+            error!(
+                "Failed to persist Google OAuth token to {}: {error}",
+                self.config.google_token_file.display()
+            );
         }
         *guard = Some(token);
     }
@@ -158,6 +161,7 @@ struct AppConfig {
     google_client_id: String,
     google_client_secret: String,
     google_redirect_uri: String,
+    google_token_file: PathBuf,
     slideshow_directory: String,
     slideshow_interval_seconds: u64,
     dev_mode: bool,
@@ -176,6 +180,7 @@ impl AppConfig {
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
             google_redirect_uri: env::var("GOOGLE_REDIRECT_URI").unwrap_or_else(|_| "http://localhost:8080/oauth/callback".to_string()),
+            google_token_file: Self::google_token_file(env::var("GOOGLE_TOKEN_FILE")),
             slideshow_directory: Self::slideshow_directory_from_env(),
             slideshow_interval_seconds: env::var("SLIDESHOW_INTERVAL_SECONDS")
                 .ok()
@@ -222,6 +227,23 @@ impl AppConfig {
             Err(_) => {
                 info!("SLIDESHOW_DIRECTORY is not set; using default slideshow directory: {DEFAULT_SLIDESHOW_DIRECTORY}");
                 DEFAULT_SLIDESHOW_DIRECTORY.to_string()
+            }
+        }
+    }
+
+    fn google_token_file(value: Result<String, env::VarError>) -> PathBuf {
+        match value {
+            Ok(path) if !path.trim().is_empty() => {
+                info!("Using configured Google OAuth token file from GOOGLE_TOKEN_FILE: {path}");
+                PathBuf::from(path)
+            }
+            Ok(_) => {
+                info!("GOOGLE_TOKEN_FILE is set but empty; using default Google OAuth token file: {DEFAULT_GOOGLE_TOKEN_FILE}");
+                PathBuf::from(DEFAULT_GOOGLE_TOKEN_FILE)
+            }
+            Err(_) => {
+                info!("GOOGLE_TOKEN_FILE is not set; using default Google OAuth token file: {DEFAULT_GOOGLE_TOKEN_FILE}");
+                PathBuf::from(DEFAULT_GOOGLE_TOKEN_FILE)
             }
         }
     }
@@ -1077,6 +1099,24 @@ mod tests {
     }
 
     #[test]
+    fn google_token_file_uses_configured_path_or_default() {
+        assert_eq!(
+            AppConfig::google_token_file(Ok("/tmp/custom-token.json".to_string())),
+            PathBuf::from("/tmp/custom-token.json"),
+        );
+        for value in [
+            Ok(String::new()),
+            Ok("  ".to_string()),
+            Err(env::VarError::NotPresent),
+        ] {
+            assert_eq!(
+                AppConfig::google_token_file(value),
+                PathBuf::from(DEFAULT_GOOGLE_TOKEN_FILE),
+            );
+        }
+    }
+
+    #[test]
     fn weather_coordinates_use_defaults_only_when_unset() {
         for (name, default, limit) in [
             ("WEATHER_LATITUDE", 58.14574000943632, 90.0),
@@ -1242,4 +1282,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-            }
+                }
