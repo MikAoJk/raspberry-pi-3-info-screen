@@ -62,7 +62,7 @@ pub struct ApplicationState {
 impl ApplicationState {
     fn new() -> Result<Self, std::io::Error> {
         let config = AppConfig::from_env()?;
-        let oauth_tokens = load_oauth_token(FilePath::new(&config.google_token_file));
+        let oauth_tokens = load_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE));
         Ok(Self {
             config: Arc::new(config),
             http_client: reqwest::Client::new(),
@@ -74,8 +74,8 @@ impl ApplicationState {
 
     async fn set_oauth_token(&self, token: OAuthToken) {
         let mut guard = self.oauth_tokens.lock().await;
-        if let Err(error) = save_oauth_token(FilePath::new(&self.config.google_token_file), &token) {
-            error!("Failed to persist Google OAuth token to {}: {error}", self.config.google_token_file);
+        if let Err(error) = save_oauth_token(FilePath::new(DEFAULT_GOOGLE_TOKEN_FILE), &token) {
+            error!("Failed to persist Google OAuth token to {DEFAULT_GOOGLE_TOKEN_FILE}: {error}");
         }
         *guard = Some(token);
     }
@@ -152,7 +152,6 @@ struct AppConfig {
     google_redirect_uri: String,
     slideshow_directory: String,
     slideshow_interval_seconds: u64,
-    google_token_file: String,
     dev_mode: bool,
 }
 
@@ -175,10 +174,6 @@ impl AppConfig {
                 .and_then(|value| value.parse().ok())
                 .filter(|seconds| *seconds > 0)
                 .unwrap_or(30),
-            google_token_file: env::var("GOOGLE_TOKEN_FILE")
-                .ok()
-                .filter(|path| !path.trim().is_empty())
-                .unwrap_or_else(|| DEFAULT_GOOGLE_TOKEN_FILE.to_string()),
             dev_mode: env::var("DEV_MODE").unwrap_or_default() == "true",
         })
     }

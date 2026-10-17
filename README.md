@@ -28,9 +28,8 @@ For Google Calendar:
 - GOOGLE_CLIENT_SECRET=your-google-client-secret
 - SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen
 - SLIDESHOW_INTERVAL_SECONDS=30
-- GOOGLE_TOKEN_FILE=/home/joakim/.local/state/info-screen/google-oauth-token.json (optional, defaults to `data/google-oauth-token.json` in the working directory)
 
-The Google OAuth token is persisted to `GOOGLE_TOKEN_FILE` so the calendar stays authorized after a restart.
+The Google OAuth token is persisted to `data/google-oauth-token.json` in the working directory so the calendar stays authorized after a restart.
 The file is written atomically with owner-only permissions (`0600`, and `0700` for a newly created directory).
 Keep it outside any shared or web-served directory and delete it to revoke the local authorization.
 
