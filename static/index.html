@@ -515,9 +515,13 @@
         }
     }
 
-    function renderWeather(snapshot) {
+    function renderWeather(snapshot, status) {
+        const unavailable = !snapshot || status === "unavailable";
+        snapshot = snapshot || {};
         document.getElementById("weather-icon").textContent = snapshot.icon || "☀️";
-        document.getElementById("weather").textContent = snapshot.description || "Nå: --°C";
+        document.getElementById("weather").textContent = unavailable
+            ? "Weather unavailable."
+            : `${snapshot.description || "Nå: --°C"}${status === "stale" ? " (cached; update failed)" : ""}`;
 
         const container = document.getElementById("hourly-weather");
         container.innerHTML = "";
@@ -597,9 +601,20 @@
         }
     }
 
-    function renderCalendar(calendar) {
+    function renderCalendar(calendar, status) {
         const container = document.getElementById("events");
         container.innerHTML = "";
+
+        if (!calendar || status === "unavailable") {
+            container.textContent = "Calendar unavailable.";
+            return;
+        }
+
+        if (status === "stale") {
+            const notice = document.createElement("p");
+            notice.textContent = "Showing cached calendar; update failed.";
+            container.appendChild(notice);
+        }
 
         if (calendar && calendar.auth_required) {
             const prompt = document.createElement("div");
@@ -798,8 +813,8 @@
         }
 
         const data = await response.json();
-        renderWeather(data.weather || {});
-        renderCalendar(data.calendar || {});
+        renderWeather(data.weather, data.weather_status);
+        renderCalendar(data.calendar, data.calendar_status);
         if (data.calendar?.auth_required && !googleAuthAttempted) {
             googleAuthAttempted = true;
             await startGoogleAuth().catch((error) => {
