@@ -21,6 +21,7 @@ use crate::log::init_log4rs;
 
 const WEATHER_CACHE_TTL: u64 = 15 * 60;
 const CALENDAR_CACHE_TTL: u64 = 15 * 60;
+const DASHBOARD_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const DEFAULT_SLIDESHOW_DIRECTORY: &str = "static/slideshow";
 const DEFAULT_GOOGLE_TOKEN_FILE: &str = "data/google-oauth-token.json";
 
@@ -315,8 +316,21 @@ struct CalendarEvent {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct DashboardResponse {
-    weather: WeatherSnapshot,
-    calendar: CalendarAggregation,
+    weather: Option<WeatherSnapshot>,
+    calendar: Option<CalendarAggregation>,
+    #[serde(default)]
+    weather_status: DashboardDataStatus,
+    #[serde(default)]
+    calendar_status: DashboardDataStatus,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DashboardDataStatus {
+    #[default]
+    Fresh,
+    Stale,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -569,15 +583,40 @@ async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<Das
         let reader = BufReader::new(file);
         let mut dashboard_response: DashboardResponse = serde_json::from_reader(reader)
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        rebase_hourly_forecast_dates(&mut dashboard_response.weather, Utc::now().date_naive())
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        if let Some(weather) = &mut dashboard_response.weather {
+            rebase_hourly_forecast_dates(weather, Utc::now().date_naive())
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        }
 
         Ok(Json(dashboard_response))
     } else {
-        let weather = fetch_weather_snapshot(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
-        let calendar = fetch_calendar_aggregation(&state).await.map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+        let cached_weather = state.weather_cache.lock().await.as_ref().map(|entry| entry.payload.clone());
+        let cached_calendar = state.calendar_cache.lock().await.as_ref().map(|entry| entry.payload.clone());
+        let ((weather, weather_status), (calendar, calendar_status)) = tokio::join!(
+            fetch_dashboard_section(fetch_weather_snapshot(&state), cached_weather, "Weather"),
+            fetch_dashboard_section(fetch_calendar_aggregation(&state), cached_calendar, "Calendar"),
+        );
 
-        Ok(Json(DashboardResponse { weather, calendar }))
+        Ok(Json(DashboardResponse { weather, calendar, weather_status, calendar_status }))
+    }
+}
+
+async fn fetch_dashboard_section<T>(
+    fetch: impl std::future::Future<Output = Result<T, String>>,
+    cached: Option<T>,
+    section: &str,
+) -> (Option<T>, DashboardDataStatus) {
+    match tokio::time::timeout(DASHBOARD_FETCH_TIMEOUT, fetch).await {
+        Ok(Ok(payload)) => (Some(payload), DashboardDataStatus::Fresh),
+        failure => {
+            let status = if cached.is_some() { DashboardDataStatus::Stale } else { DashboardDataStatus::Unavailable };
+            if failure.is_err() {
+                error!("{section} fetch timed out; dashboard data is {status:?}.");
+            } else {
+                error!("{section} fetch failed; dashboard data is {status:?}.");
+            }
+            (cached, status)
+        }
     }
 }
 
@@ -1046,6 +1085,151 @@ fn is_cache_fresh(cached_at_unix: u64, ttl_seconds: u64) -> bool {
 mod tests {
     use super::*;
 
+    fn dashboard_fixture() -> DashboardResponse {
+        serde_json::from_str(include_str!("../test-data/dashboard-response.json")).unwrap()
+    }
+
+    async fn dashboard_test_state(
+        barrier: Option<Arc<tokio::sync::Barrier>>,
+    ) -> (ApplicationState, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().fallback(move || {
+            let barrier = barrier.clone();
+            async move {
+                if let Some(barrier) = barrier {
+                    barrier.wait().await;
+                }
+                StatusCode::BAD_GATEWAY
+            }
+        });
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let state = ApplicationState {
+            config: Arc::new(AppConfig {
+                weather_latitude: 58.0,
+                weather_longitude: 8.0,
+                calendar_id: "test".to_string(),
+                google_client_id: String::new(),
+                google_client_secret: String::new(),
+                google_redirect_uri: String::new(),
+                google_token_file: PathBuf::new(),
+                slideshow_directory: String::new(),
+                slideshow_interval_seconds: 30,
+                dev_mode: false,
+            }),
+            http_client: reqwest::Client::builder()
+                .proxy(reqwest::Proxy::all(proxy_url).unwrap())
+                .build().unwrap(),
+            weather_cache: Arc::new(Mutex::new(None)),
+            calendar_cache: Arc::new(Mutex::new(None)),
+            oauth_tokens: Arc::new(Mutex::new(Some(OAuthToken {
+                access_token: "test".to_string(),
+                refresh_token: None,
+                token_type: "Bearer".to_string(),
+                expires_at_unix: u64::MAX,
+            }))),
+        };
+        (state, server)
+    }
+
+    #[tokio::test]
+    async fn dashboard_returns_each_healthy_section_when_the_other_fails() {
+        for weather_is_healthy in [true, false] {
+            let (state, server) = dashboard_test_state(None).await;
+            let fixture = dashboard_fixture();
+            if weather_is_healthy {
+                *state.weather_cache.lock().await = Some(WeatherCache {
+                    cached_at_unix: now_unix_seconds(),
+                    payload: fixture.weather.clone().unwrap(),
+                });
+                // Token refresh failures must not prevent weather from being returned.
+                state.oauth_tokens.lock().await.as_mut().unwrap().expires_at_unix = 0;
+            } else {
+                *state.calendar_cache.lock().await = Some(CalendarCache {
+                    cached_at_unix: now_unix_seconds(),
+                    payload: fixture.calendar.clone().unwrap(),
+                });
+            }
+
+            let Json(response) = get_dashboard(State(state)).await.unwrap();
+            let json = serde_json::to_value(response).unwrap();
+            let expected = serde_json::to_value(fixture).unwrap();
+            let (healthy, failed) = if weather_is_healthy { ("weather", "calendar") } else { ("calendar", "weather") };
+            assert_eq!(json[healthy], expected[healthy]);
+            assert_eq!(json[format!("{healthy}_status")], "fresh");
+            assert!(json[failed].is_null());
+            assert_eq!(json[format!("{failed}_status")], "unavailable");
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn dashboard_fetches_both_upstreams_concurrently_and_survives_both_failures() {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let (state, server) = dashboard_test_state(Some(barrier)).await;
+        let Json(response) = tokio::time::timeout(
+            std::time::Duration::from_secs(2), get_dashboard(State(state)),
+        ).await.expect("Both upstream requests must run concurrently").unwrap();
+        assert!(response.weather.is_none());
+        assert!(response.calendar.is_none());
+        assert_eq!(response.weather_status, DashboardDataStatus::Unavailable);
+        assert_eq!(response.calendar_status, DashboardDataStatus::Unavailable);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn dashboard_reuses_expired_caches_without_marking_them_fresh() {
+        let (state, server) = dashboard_test_state(None).await;
+        let fixture = dashboard_fixture();
+        *state.weather_cache.lock().await = Some(WeatherCache {
+            cached_at_unix: 1,
+            payload: fixture.weather.clone().unwrap(),
+        });
+        *state.calendar_cache.lock().await = Some(CalendarCache {
+            cached_at_unix: 1,
+            payload: fixture.calendar.clone().unwrap(),
+        });
+        for _ in 0..2 {
+            let Json(response) = get_dashboard(State(state.clone())).await.unwrap();
+            assert_eq!(response.weather_status, DashboardDataStatus::Stale);
+            assert_eq!(response.calendar_status, DashboardDataStatus::Stale);
+            let json = serde_json::to_value(response).unwrap();
+            let expected = serde_json::to_value(&fixture).unwrap();
+            assert_eq!(json["weather"], expected["weather"]);
+            assert_eq!(json["calendar"], expected["calendar"]);
+            assert_eq!(state.weather_cache.lock().await.as_ref().unwrap().cached_at_unix, 1);
+            assert_eq!(state.calendar_cache.lock().await.as_ref().unwrap().cached_at_unix, 1);
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn dashboard_preserves_calendar_authorization_prompt() {
+        let (state, server) = dashboard_test_state(None).await;
+        *state.oauth_tokens.lock().await = None;
+        let Json(response) = get_dashboard(State(state)).await.unwrap();
+        assert!(response.calendar.unwrap().auth_required);
+        assert_eq!(response.calendar_status, DashboardDataStatus::Fresh);
+        assert_eq!(response.weather_status, DashboardDataStatus::Unavailable);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn dashboard_section_prefers_success_and_bounds_hanging_fetches() {
+        let (payload, status) = fetch_dashboard_section(async { Ok(2) }, Some(1), "Test").await;
+        assert_eq!(payload, Some(2));
+        assert_eq!(status, DashboardDataStatus::Fresh);
+
+        let ((cached, cached_status), (missing, missing_status)) = tokio::join!(
+            fetch_dashboard_section(std::future::pending::<Result<i32, String>>(), Some(1), "Test"),
+            fetch_dashboard_section(std::future::pending::<Result<i32, String>>(), None, "Test"),
+        );
+        assert_eq!(cached, Some(1));
+        assert_eq!(cached_status, DashboardDataStatus::Stale);
+        assert_eq!(missing, None);
+        assert_eq!(missing_status, DashboardDataStatus::Unavailable);
+    }
+
     #[test]
     fn oauth_token_is_persisted_and_reloaded_with_owner_only_permissions() {
         let directory = env::temp_dir().join(format!("infoscreen-token-test-{}-{}", std::process::id(), now_unix_seconds()));
@@ -1194,10 +1378,10 @@ mod tests {
         let mut rebased = original.clone();
         let target_date = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
 
-        rebase_hourly_forecast_dates(&mut rebased.weather, target_date).unwrap();
+        rebase_hourly_forecast_dates(rebased.weather.as_mut().unwrap(), target_date).unwrap();
 
-        let original_hourly = &original.weather.hourly;
-        let rebased_hourly = &rebased.weather.hourly;
+        let original_hourly = &original.weather.as_ref().unwrap().hourly;
+        let rebased_hourly = &rebased.weather.as_ref().unwrap().hourly;
         assert_eq!(rebased_hourly.len(), 48);
         assert_eq!(
             DateTime::parse_from_rfc3339(&rebased_hourly[0].time)
@@ -1282,4 +1466,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-                }
+            }
