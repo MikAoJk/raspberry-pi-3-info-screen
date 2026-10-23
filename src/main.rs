@@ -577,6 +577,7 @@ async fn google_oauth_callback(
 }
 
 async fn get_dashboard(State(state): State<ApplicationState>) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
+    info!("Received GET /api/dashboard request");
     if state.config.dev_mode {
         let file = File::open("test-data/dashboard-response.json")
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
