@@ -5,4 +5,7 @@ ignore = [
     "RUSTSEC-2026-0347", # `rustls` Buffered application data sent to outer server after ECH rejectio
     "RUSTSEC-2026-0346", # `rustls` `Debug` impls for client session values expose TLS secrets
     "RUSTSEC-2026-0348", # `rustls` Brotli certificate decompression can allocate up to 1 GiB before authentication
-]
+    "RUSTSEC-2026-0382", # `rustls` Certificate verification may accept distrusted intermediates
+    "RUSTSEC-2026-0384", # `tokio-rs` Race condition in tokio::time::Interval on Tokio v1.54.0
+    "RUSTSEC-2026-0383", # `rustls` Bundled root certificates allow trust in distrusted emSign intermediates
+] 
