@@ -9,7 +9,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 axum = "0.8.9"
 tokio = { version = "1.54.0", features = ["full"] }
 log = "0.4.34"
-log4rs = { version = "1.4.0", features = ["json_encoder"] }
+log4rs = { version = "1.4.0", default-features = false, features = ["console_appender", "json_encoder"] }
 reqwest = { version = "0.13.5", features = ["form", "json", "query"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
