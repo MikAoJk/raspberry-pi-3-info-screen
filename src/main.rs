@@ -19,8 +19,8 @@ use tokio::sync::Mutex;
 
 use crate::log::init_log4rs;
 
-const WEATHER_CACHE_TTL: u64 = 15 * 60;
-const CALENDAR_CACHE_TTL: u64 = 15 * 60;
+const WEATHER_CACHE_TTL: u64 = 1 * 60;
+const CALENDAR_CACHE_TTL: u64 = 1 * 60;
 const DASHBOARD_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const DEFAULT_SLIDESHOW_DIRECTORY: &str = "static/slideshow";
 const DEFAULT_GOOGLE_TOKEN_FILE: &str = "data/google-oauth-token.json";
