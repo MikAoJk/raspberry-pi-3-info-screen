@@ -609,13 +609,17 @@ async fn fetch_dashboard_section<T>(
 ) -> (Option<T>, DashboardDataStatus) {
     match tokio::time::timeout(DASHBOARD_FETCH_TIMEOUT, fetch).await {
         Ok(Ok(payload)) => (Some(payload), DashboardDataStatus::Fresh),
-        failure => {
+        Ok(Err(reason)) => {
             let status = if cached.is_some() { DashboardDataStatus::Stale } else { DashboardDataStatus::Unavailable };
-            if failure.is_err() {
-                error!("{section} fetch timed out; dashboard data is {status:?}.");
-            } else {
-                error!("{section} fetch failed; dashboard data is {status:?}.");
-            }
+            error!("{section} fetch failed: {reason}; dashboard data is {status:?}.");
+            (cached, status)
+        }
+        Err(error) => {
+            let status = if cached.is_some() { DashboardDataStatus::Stale } else { DashboardDataStatus::Unavailable };
+            error!(
+                "{section} fetch timed out after {:?}: {error}; dashboard data is {status:?}.",
+                DASHBOARD_FETCH_TIMEOUT
+            );
             (cached, status)
         }
     }
@@ -1467,4 +1471,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-            }
+        }
