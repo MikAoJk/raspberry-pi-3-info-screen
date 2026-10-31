@@ -408,14 +408,7 @@ struct OAuthExchangeResponse {
 }
 
 async fn root() -> Html<&'static str> {
-    let html_in_string: String = fs::read_to_string("static/index.html").expect("failed to read html file to string");
-    let html_in_str: &str = string_to_static_str(html_in_string);
-
-    Html(html_in_str)
-}
-
-fn string_to_static_str(s: String) -> &'static str {
-    s.leak()
+    Html(include_str!("../static/index.html"))
 }
 
 fn slideshow_content_type(filename: &str) -> Option<&'static str> {
@@ -1564,4 +1557,4 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
-        }
+    }
