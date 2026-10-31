@@ -83,6 +83,27 @@ impl ApplicationState {
         }
         *guard = Some(token);
     }
+
+    async fn clear_oauth_token(&self, expected_token: &OAuthToken) {
+        let mut guard = self.oauth_tokens.lock().await;
+        let is_current_token = guard.as_ref().is_some_and(|token| {
+            token.access_token == expected_token.access_token
+                && token.refresh_token == expected_token.refresh_token
+        });
+        if !is_current_token {
+            return;
+        }
+
+        *guard = None;
+        match fs::remove_file(&self.config.google_token_file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => error!(
+                "Failed to remove invalid Google OAuth token file {}: {error}",
+                self.config.google_token_file.display()
+            ),
+        }
+    }
 }
 
 fn load_oauth_token(path: &FilePath) -> Option<OAuthToken> {
@@ -670,17 +691,24 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
     let tokens = match token {
         Some(token) => token,
         None => {
-            return Ok(CalendarAggregation {
-                auth_required: true,
-                message: Some("Google Calendar authorization required.".to_string()),
-                days: vec![],
-                fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0).unwrap_or_else(Utc::now).to_rfc3339(),
-            });
+            return Ok(calendar_authorization_required("Google Calendar authorization required."));
         }
     };
 
     let access_token = if tokens.is_expired() {
-        let refreshed = refresh_google_access_token(state, tokens.refresh_token.clone().unwrap_or_default()).await?;
+        let Some(refresh_token) = tokens.refresh_token.as_deref().filter(|value| !value.trim().is_empty()) else {
+            state.clear_oauth_token(&tokens).await;
+            return Ok(calendar_authorization_required("Google Calendar authorization expired. Please authorize again."));
+        };
+        let refreshed = match refresh_google_access_token(state, refresh_token).await {
+            Ok(token) => token,
+            Err(RefreshTokenError::ReauthorizationRequired(reason)) => {
+                error!("Google OAuth refresh token was rejected: {reason}. Requiring fresh authorization.");
+                state.clear_oauth_token(&tokens).await;
+                return Ok(calendar_authorization_required("Google Calendar authorization expired. Please authorize again."));
+            }
+            Err(RefreshTokenError::Failed(reason)) => return Err(reason),
+        };
         state.set_oauth_token(refreshed.clone()).await;
         refreshed.access_token
     } else {
@@ -724,6 +752,15 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
 
     *state.calendar_cache.lock().await = Some(CalendarCache { cached_at_unix: now_unix_seconds(), payload: output.clone() });
     Ok(output)
+}
+
+fn calendar_authorization_required(message: &str) -> CalendarAggregation {
+    CalendarAggregation {
+        auth_required: true,
+        message: Some(message.to_string()),
+        days: vec![],
+        fetched_at: DateTime::<Utc>::from_timestamp(now_unix_seconds() as i64, 0).unwrap_or_else(Utc::now).to_rfc3339(),
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1039,19 +1076,34 @@ async fn refresh_google_token(
     Ok(Json(token))
 }
 
-async fn refresh_google_access_token(state: &ApplicationState, refresh_token: String) -> Result<OAuthToken, String> {
+enum RefreshTokenError {
+    ReauthorizationRequired(String),
+    Failed(String),
+}
+
+#[derive(Deserialize)]
+struct GoogleOAuthErrorResponse {
+    error: String,
+}
+
+fn is_invalid_grant_response(body: &str) -> bool {
+    serde_json::from_str::<GoogleOAuthErrorResponse>(body)
+        .is_ok_and(|response| response.error == "invalid_grant")
+}
+
+async fn refresh_google_access_token(state: &ApplicationState, refresh_token: &str) -> Result<OAuthToken, RefreshTokenError> {
     let client_id = state.config.google_client_id.clone();
     let client_secret = state.config.google_client_secret.clone();
 
     if !state.config.has_google_oauth_config() {
         error!("Google OAuth tokens are not configured on the server.");
-        return Err("Google OAuth is not configured on the server.".to_string());
+        return Err(RefreshTokenError::Failed("Google OAuth is not configured on the server.".to_string()));
     }
 
     let payload = vec![
         ("client_id", client_id.as_str()),
         ("client_secret", client_secret.as_str()),
-        ("refresh_token", refresh_token.as_str()),
+        ("refresh_token", refresh_token),
         ("grant_type", "refresh_token"),
     ];
 
@@ -1060,19 +1112,26 @@ async fn refresh_google_access_token(state: &ApplicationState, refresh_token: St
         .form(&payload)
         .send()
         .await
-        .map_err(|error| format!("token refresh failed: {error}"))?;
+        .map_err(|error| RefreshTokenError::Failed(format!("token refresh failed: {error}")))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("token refresh returned {status}: {body}"));
+        let reason = format!("token refresh returned {status}: {body}");
+        return Err(if is_invalid_grant_response(&body) {
+            RefreshTokenError::ReauthorizationRequired(reason)
+        } else {
+            RefreshTokenError::Failed(reason)
+        });
     }
 
-    let oauth_response: OAuthExchangeResponse = response.json().await.map_err(|error| format!("refresh response could not be parsed: {error}"))?;
+    let oauth_response: OAuthExchangeResponse = response.json().await.map_err(|error| {
+        RefreshTokenError::Failed(format!("refresh response could not be parsed: {error}"))
+    })?;
 
     Ok(OAuthToken {
         access_token: oauth_response.access_token,
-        refresh_token: Some(refresh_token),
+        refresh_token: Some(refresh_token.to_string()),
         token_type: oauth_response.token_type,
         expires_at_unix: now_unix_seconds().saturating_add(oauth_response.expires_in.unwrap_or(3600)),
     })
@@ -1148,7 +1207,10 @@ mod tests {
                     payload: fixture.weather.clone().unwrap(),
                 });
                 // Token refresh failures must not prevent weather from being returned.
-                state.oauth_tokens.lock().await.as_mut().unwrap().expires_at_unix = 0;
+                let mut tokens = state.oauth_tokens.lock().await;
+                let token = tokens.as_mut().unwrap();
+                token.refresh_token = Some("refresh".to_string());
+                token.expires_at_unix = 0;
             } else {
                 *state.calendar_cache.lock().await = Some(CalendarCache {
                     cached_at_unix: now_unix_seconds(),
@@ -1217,6 +1279,37 @@ mod tests {
         assert_eq!(response.calendar_status, DashboardDataStatus::Fresh);
         assert_eq!(response.weather_status, DashboardDataStatus::Unavailable);
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn expired_oauth_token_without_refresh_token_requires_authorization() {
+        let directory = env::temp_dir().join(format!("infoscreen-refresh-test-{}-{}", std::process::id(), now_unix_seconds()));
+        let path = directory.join("token.json");
+        let token = OAuthToken {
+            access_token: "expired".to_string(),
+            refresh_token: None,
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 0,
+        };
+        let (mut state, server) = dashboard_test_state(None).await;
+        Arc::make_mut(&mut state.config).google_token_file = path.clone();
+        save_oauth_token(&path, &token).unwrap();
+        *state.oauth_tokens.lock().await = Some(token);
+
+        let calendar = fetch_calendar_aggregation(&state).await.unwrap();
+        assert!(calendar.auth_required);
+        assert!(state.oauth_tokens.lock().await.is_none());
+        assert!(!path.exists());
+
+        fs::remove_dir_all(&directory).unwrap();
+        server.abort();
+    }
+
+    #[test]
+    fn only_invalid_grant_refresh_errors_require_reauthorization() {
+        assert!(is_invalid_grant_response(r#"{"error":"invalid_grant"}"#));
+        assert!(!is_invalid_grant_response(r#"{"error":"temporarily_unavailable"}"#));
+        assert!(!is_invalid_grant_response("not json"));
     }
 
     #[tokio::test]
