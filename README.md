@@ -32,6 +32,12 @@ For Google Calendar:
 - SLIDESHOW_INTERVAL_SECONDS=30
 - GOOGLE_TOKEN_FILE=/home/joakim/.local/state/info-screen/google-oauth-token.json 
 
+Google authorization and token refresh succeed only after credentials are saved to
+`GOOGLE_TOKEN_FILE` (default: `data/google-oauth-token.json`). If saving fails, the
+authorization callback and token APIs return HTTP 500 without replacing the
+in-memory credentials. Check the server logs, configured path, and filesystem
+permissions for the service user, then authorize again.
+
 ### Build
 Build the code without running it
 ```bash script

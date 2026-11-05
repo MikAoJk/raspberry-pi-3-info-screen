@@ -73,15 +73,20 @@ impl ApplicationState {
         })
     }
 
-    async fn set_oauth_token(&self, token: OAuthToken) {
+    async fn set_oauth_token(&self, token: OAuthToken) -> Result<(), (StatusCode, String)> {
         let mut guard = self.oauth_tokens.lock().await;
-        if let Err(error) = save_oauth_token(&self.config.google_token_file, &token) {
+        save_oauth_token(&self.config.google_token_file, &token).map_err(|error| {
             error!(
                 "Failed to persist Google OAuth token to {}: {error}",
                 self.config.google_token_file.display()
             );
-        }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to persist Google OAuth credentials. Check GOOGLE_TOKEN_FILE and server filesystem permissions, then authorize again.".to_string(),
+            )
+        })?;
         *guard = Some(token);
+        Ok(())
     }
 
     async fn clear_oauth_token(&self, expected_token: &OAuthToken) {
@@ -571,7 +576,7 @@ async fn google_oauth_callback(
     let code = query.code.ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing Google OAuth code.".to_string()))?;
     let redirect_uri = state.config.google_redirect_uri.clone();
     let token = exchange_google_code_for_token(&state, code, redirect_uri).await?;
-    state.set_oauth_token(token).await;
+    state.set_oauth_token(token).await?;
 
     let html = r#"
         <!doctype html>
@@ -702,7 +707,7 @@ async fn fetch_calendar_aggregation(state: &ApplicationState) -> Result<Calendar
             }
             Err(RefreshTokenError::Failed(reason)) => return Err(reason),
         };
-        state.set_oauth_token(refreshed.clone()).await;
+        state.set_oauth_token(refreshed.clone()).await.map_err(|(_, message)| message)?;
         refreshed.access_token
     } else {
         tokens.access_token
@@ -973,7 +978,7 @@ async fn store_google_token(
 ) -> Result<Json<OAuthToken>, (StatusCode, String)> {
     let redirect_uri = request.redirect_uri.clone().unwrap_or_else(|| state.config.google_redirect_uri.clone());
     let token = exchange_google_code_for_token(&state, request.code, redirect_uri).await?;
-    state.set_oauth_token(token.clone()).await;
+    state.set_oauth_token(token.clone()).await?;
     Ok(Json(token))
 }
 
@@ -1065,7 +1070,7 @@ async fn refresh_google_token(
         expires_at_unix: now_unix_seconds().saturating_add(oauth_response.expires_in.unwrap_or(3600)),
     };
 
-    state.set_oauth_token(token.clone()).await;
+    state.set_oauth_token(token.clone()).await?;
     Ok(Json(token))
 }
 
@@ -1371,6 +1376,62 @@ mod tests {
         }
 
         fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauth_token_persistence_failure_preserves_existing_state() {
+        let directory = env::temp_dir().join(format!("infoscreen-token-failure-test-{}-{}", std::process::id(), now_unix_seconds()));
+        fs::create_dir_all(&directory).unwrap();
+        let blocked_parent = directory.join("not-a-directory");
+        fs::write(&blocked_parent, "blocked").unwrap();
+        let (mut state, server) = dashboard_test_state(None).await;
+        let token = OAuthToken {
+            access_token: "new-access".to_string(),
+            refresh_token: Some("new-refresh".to_string()),
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 42,
+        };
+
+        for path in [blocked_parent.join("token.json"), directory.clone()] {
+            Arc::make_mut(&mut state.config).google_token_file = path;
+            for previous_token in [None, Some(token.clone())] {
+                *state.oauth_tokens.lock().await = previous_token.clone();
+                let replacement = OAuthToken { access_token: "replacement".to_string(), ..token.clone() };
+                let (status, message) = state.set_oauth_token(replacement).await.unwrap_err();
+                assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+                assert!(message.contains("Unable to persist Google OAuth credentials"));
+                assert!(message.contains("GOOGLE_TOKEN_FILE"));
+                assert_eq!(
+                    serde_json::to_value(&*state.oauth_tokens.lock().await).unwrap(),
+                    serde_json::to_value(&previous_token).unwrap(),
+                );
+            }
+        }
+
+        fs::remove_dir_all(&directory).unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn setting_oauth_token_persists_before_updating_state() {
+        let directory = env::temp_dir().join(format!("infoscreen-token-state-test-{}-{}", std::process::id(), now_unix_seconds()));
+        let path = directory.join("token.json");
+        let (mut state, server) = dashboard_test_state(None).await;
+        Arc::make_mut(&mut state.config).google_token_file = path.clone();
+        let token = OAuthToken {
+            access_token: "new-access".to_string(),
+            refresh_token: Some("new-refresh".to_string()),
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 42,
+        };
+
+        state.set_oauth_token(token.clone()).await.unwrap();
+        let expected = serde_json::to_value(&token).unwrap();
+        assert_eq!(serde_json::to_value(load_oauth_token(&path).unwrap()).unwrap(), expected);
+        assert_eq!(serde_json::to_value(&*state.oauth_tokens.lock().await).unwrap(), expected);
+
+        fs::remove_dir_all(&directory).unwrap();
+        server.abort();
     }
 
     #[test]
