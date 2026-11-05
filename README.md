@@ -1,6 +1,7 @@
 # Raspberry Pi 3 info screen
 This is a personal setup that I use at home, with my Raspberry Pi 3 and my display with 1024x600, to get some info we need on a day-to-day basis.
 Dashboard refresh interval is 1 minute
+Failed refreshes show cached weather and calendar data with an update-failed warning, or an unavailable message if no data has loaded. Warnings clear on the next successful refresh.
 
 ![img.png](img.png)
 
@@ -36,6 +37,11 @@ For Google Calendar:
 Build the code without running it
 ```bash script
 cargo build
+```
+
+Run the dashboard refresh regression tests with Node.js:
+```bash
+node --test tests/dashboard-refresh.test.cjs
 ```
 
 #### Running the application locally in dev mode
