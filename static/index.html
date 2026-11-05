@@ -805,21 +805,29 @@
     }
 
     let googleAuthAttempted = false;
+    let lastDashboard = null;
 
     async function loadDashboard() {
-        const response = await fetch("/api/dashboard");
-        if (!response.ok) {
-            throw new Error(`Dashboard request failed: ${response.status}`);
-        }
+        try {
+            const response = await fetch("/api/dashboard");
+            if (!response.ok) {
+                throw new Error(`Dashboard request failed: ${response.status}`);
+            }
 
-        const data = await response.json();
-        renderWeather(data.weather, data.weather_status);
-        renderCalendar(data.calendar, data.calendar_status);
-        if (data.calendar?.auth_required && !googleAuthAttempted) {
-            googleAuthAttempted = true;
-            await startGoogleAuth().catch((error) => {
-                console.error("Automatic Google authorization unavailable.", error);
-            });
+            const data = await response.json();
+            renderWeather(data.weather, data.weather_status);
+            renderCalendar(data.calendar, data.calendar_status);
+            lastDashboard = data;
+            if (data.calendar?.auth_required && !googleAuthAttempted) {
+                googleAuthAttempted = true;
+                await startGoogleAuth().catch((error) => {
+                    console.error("Automatic Google authorization unavailable.", error);
+                });
+            }
+        } catch (error) {
+            console.error("Dashboard refresh unavailable.", error);
+            renderWeather(lastDashboard?.weather, "stale");
+            renderCalendar(lastDashboard?.calendar, "stale");
         }
     }
 
@@ -834,10 +842,7 @@
     setInterval(updateClock, 1000);
     startClockSlideshow().catch((error) => console.error("Clock slideshow unavailable.", error));
 
-    loadDashboard().catch(() => {
-        document.getElementById("weather").textContent = "Weather unavailable.";
-        document.getElementById("events").textContent = "Calendar unavailable.";
-    });
+    loadDashboard();
 
     setInterval(loadDashboard, 1 * 60 * 1000);
 </script>
