@@ -1452,6 +1452,77 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn clearing_oauth_token_preserves_replacement_credentials() {
+        let directory = env::temp_dir().join(format!(
+            "infoscreen-token-clear-replacement-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let path = directory.join("token.json");
+        let (mut state, server) = dashboard_test_state(None).await;
+        Arc::make_mut(&mut state.config).google_token_file = path.clone();
+        let rejected = OAuthToken {
+            access_token: "rejected-access".to_string(),
+            refresh_token: Some("rejected-refresh".to_string()),
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 0,
+        };
+
+        for replacement in [
+            OAuthToken { access_token: "replacement-access".to_string(), ..rejected.clone() },
+            OAuthToken { refresh_token: Some("replacement-refresh".to_string()), ..rejected.clone() },
+            OAuthToken { refresh_token: None, ..rejected.clone() },
+        ] {
+            state.set_oauth_token(replacement.clone()).await.unwrap();
+            let persisted = fs::read(&path).unwrap();
+
+            state.clear_oauth_token(&rejected).await;
+
+            assert_eq!(
+                serde_json::to_value(&*state.oauth_tokens.lock().await).unwrap(),
+                serde_json::to_value(&replacement).unwrap(),
+            );
+            assert_eq!(fs::read(&path).unwrap(), persisted);
+        }
+
+        fs::remove_dir_all(&directory).unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn clearing_oauth_token_removes_matching_credentials_even_if_file_is_missing() {
+        let directory = env::temp_dir().join(format!(
+            "infoscreen-token-clear-matching-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let path = directory.join("token.json");
+        let (mut state, server) = dashboard_test_state(None).await;
+        Arc::make_mut(&mut state.config).google_token_file = path.clone();
+        let token = OAuthToken {
+            access_token: "rejected-access".to_string(),
+            refresh_token: Some("rejected-refresh".to_string()),
+            token_type: "Bearer".to_string(),
+            expires_at_unix: 0,
+        };
+
+        for file_exists in [true, false] {
+            state.set_oauth_token(token.clone()).await.unwrap();
+            if !file_exists {
+                fs::remove_file(&path).unwrap();
+            }
+
+            state.clear_oauth_token(&token).await;
+
+            assert!(state.oauth_tokens.lock().await.is_none());
+            assert!(!path.exists());
+        }
+
+        fs::remove_dir_all(&directory).unwrap();
+        server.abort();
+    }
+
     #[test]
     fn weather_coordinates_use_defaults_only_when_unset() {
         for (name, default, limit) in [
