@@ -1648,4 +1648,22 @@ mod tests {
         assert_eq!(days[0].events.len(), 2);
         assert!(days[1].events.is_empty());
     }
+
+    #[test]
+    fn assigns_timed_events_by_oslo_date_across_daylight_saving_transition() {
+        let display_start = NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
+        let days = build_calendar_days(
+            vec![event(
+                "DST transition",
+                timed("2026-10-24T22:30:00Z"),
+                timed("2026-10-25T01:30:00Z"),
+            )],
+            display_start,
+        );
+
+        assert!(days[0].events.is_empty());
+        assert_eq!(days[1].events.len(), 1);
+        assert_eq!(days[1].events[0].title, "DST transition");
+        assert!(days[2..].iter().all(|day| day.events.is_empty()));
+    }
                 }
