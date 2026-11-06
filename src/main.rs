@@ -1569,6 +1569,36 @@ mod tests {
         assert!(!slideshow_path_is_within(directory, FilePath::new("/etc/passwd")));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn slideshow_files_sort_supported_images_and_ignore_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let directory = env::temp_dir().join(format!(
+            "infoscreen-slideshow-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let slideshow_directory = directory.join("slideshow");
+        let outside_image = directory.join("outside.jpg");
+        fs::create_dir_all(&slideshow_directory).unwrap();
+        fs::write(slideshow_directory.join("B.JPG"), b"image").unwrap();
+        fs::write(slideshow_directory.join("a.png"), b"image").unwrap();
+        fs::write(slideshow_directory.join("ignored.txt"), b"text").unwrap();
+        fs::create_dir(slideshow_directory.join("nested.jpg")).unwrap();
+        fs::write(&outside_image, b"outside").unwrap();
+        symlink(&outside_image, slideshow_directory.join("linked.jpg")).unwrap();
+
+        let files = slideshow_files(&slideshow_directory).await.unwrap();
+        let filenames = files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(filenames, vec!["a.png", "B.JPG"]);
+
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
     #[test]
     fn displays_events_on_every_day_they_span() {
         let display_start = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
