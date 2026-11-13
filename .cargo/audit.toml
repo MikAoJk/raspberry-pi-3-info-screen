@@ -8,4 +8,8 @@ ignore = [
     "RUSTSEC-2026-0382", # `rustls` Certificate verification may accept distrusted intermediates
     "RUSTSEC-2026-0384", # `tokio-rs` Race condition in tokio::time::Interval on Tokio v1.54.0
     "RUSTSEC-2026-0383", # `rustls` Bundled root certificates allow trust in distrusted emSign intermediates
-] 
+    "RUSTSEC-2026-0524", # `quinn-proto` Long Retry token can panic or exhaust memory in a QUIC client
+    "RUSTSEC-2026-0523", # `quinn-proto` MAX_STREAM_DATA frame can open streams beyond the stream limit
+    "RUSTSEC-2026-0538", # `quinn-udp` Receive loop can spin after a truncated datagram
+    "RUSTSEC-2026-0190", # `unsound` Unsoundness in Error::downcast_mut()
+]
