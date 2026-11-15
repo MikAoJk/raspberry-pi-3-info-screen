@@ -6,7 +6,7 @@ Dashboard refresh interval is 1 minute
 
 ### Prerequisites
 ### Rust and Cargo
-Install Rust/Cargo with [rustup](https://rust-lang.org/tools/install/) if needed. The minimum Rust version is **1.98.0**, as declared in `Cargo.toml`.
+Install Rust/Cargo with [rustup](https://rust-lang.org/tools/install/) if needed. The minimum Rust version id declared in [Cargo.toml](Cargo.toml#L5)
 
 Verify Rust and Cargo are installed:
 
