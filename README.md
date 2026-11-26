@@ -46,17 +46,22 @@ Configuration is read at startup by `AppConfig::from_env` in `src/main.rs`. Expo
 Relative paths are resolved from the process working directory. Slideshow images must be regular files directly inside the configured directory, with AVIF, GIF, JPEG/JPG, PNG, or WebP extensions.
 
 ### Build
-Build the code without running it
+Build the application
 ```bash script
-cargo build
+cargo build --release --locked
 ```
 
 #### Running the application locally in dev mode
-Run from the repository root:
 
+with cargo:
 ```bash script
 DEV_MODE=true cargo run
 ```
+or run the compiled binary
+```bash script
+DEV_MODE=true ./target/release/infoscreeen
+```
+
 Available at http://localhost:8080. In this mode, `/api/dashboard` reads `test-data/dashboard-response.json` and rebases its hourly weather dates to the current UTC date. Google credentials are not needed for the fixture dashboard; slideshow files and OAuth routes still use the normal configuration.
 
 #### Tests
