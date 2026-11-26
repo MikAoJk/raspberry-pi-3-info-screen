@@ -1,5 +1,5 @@
 # Raspberry Pi 3 info screen
-This is a personal setup that I use at home, with my Raspberry Pi 3 and my display with 1024x600, to get some info we need on a day-to-day basis.
+This is a personal setup that I use at home, with my Raspberry Pi 3(OS: Raspberry Pi OS (64-bit)) and my display with 1024x600, to get some info we need on a day-to-day basis.
 Dashboard refresh interval is 1 minute
 
 ![img.png](img.png)
@@ -22,10 +22,8 @@ For Google Calendar:
 3. Configure the OAuth consent screen for the Calendar read-only scope (`https://www.googleapis.com/auth/calendar.readonly`) requested by `/api/oauth/google/config`.
 4. Create an OAuth client of type **Web application**. No API key is used by this application.
 5. Add `http://localhost:8080/oauth/callback` as an **authorized redirect URI**, not just `http://localhost:8080` as a JavaScript origin. If you override `GOOGLE_REDIRECT_URI`, register that exact URL instead; it must reach the application from the browser used for authorization.
-6. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the server environment, and set `CALENDAR_ID` to your calendar's ID (Google Calendar settings > Integrate calendar). The account you authorize must have read access to that calendar.
-7. Start the application without `DEV_MODE=true` and open http://localhost:8080. The dashboard starts Google authorization when credentials are needed; the calendar authorization button can retry it.
+6. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the [server environment](#environment-variables) , and set `CALENDAR_ID` to your calendar's ID (Google Calendar settings > Integrate calendar). The account you authorize must have read access to that calendar.
 
-The server exchanges the authorization code and saves the tokens to `GOOGLE_TOKEN_FILE`, reloading them on startup and refreshing expired access tokens when a refresh token is available. The process user must be able to write the token file and its parent directory. Keep this file private and outside version control; only the default `data/` directory is ignored by `.gitignore`.
 
 #### Environment variables
 Configuration is read at startup by `AppConfig::from_env` in `src/main.rs`. Export variables before `cargo run`, or use the systemd `Environment` entries below; restart the process after changes.
