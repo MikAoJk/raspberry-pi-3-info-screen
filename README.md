@@ -67,6 +67,14 @@ cargo test
 ```
 
 ### Run on startup Raspberry Pi 3
+Build the release binary once on the Raspberry Pi, from the repository root, before starting the service:
+
+```bash
+cargo build --release --locked
+```
+
+The first release build can take a long time on a Raspberry Pi 3. Run the compiled binary directly in systemd so startup does not invoke Cargo or compile code.
+
 ```bash script
 sudo nano /etc/systemd/system/rust_app.service
 ```
@@ -89,13 +97,13 @@ Environment="WEATHER_LONGITUDE=8.06137337891726"
 Environment="SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen"
 Environment="SLIDESHOW_INTERVAL_SECONDS=30"
 Environment="GOOGLE_TOKEN_FILE=/home/joakim/.local/state/info-screen/google-oauth-token.json"
-ExecStart=/home/joakim/.cargo/bin/cargo run --release
+ExecStart=/home/joakim/git/priv/raspberry-pi-3-info-screen/target/release/infoscreeen
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
-Replace the username, paths, credentials, calendar ID, and weather coordinates with your own values. The working directory must contain `Cargo.toml`; it also determines where relative slideshow and token paths resolve.
+Replace the username, paths, credentials, calendar ID, and weather coordinates with your own values. Keep the working directory set to the repository root so relative slideshow, token, and dev-mode fixture paths resolve correctly. The binary name is `infoscreeen`, as declared in `Cargo.toml`.
 
 Then
 ```bash script
@@ -106,6 +114,12 @@ sudo systemctl enable rust_app.service
 ```
 ```bash script
 sudo systemctl start rust_app.service
+```
+
+After updating the application code, rebuild from the repository root and restart the service to use the new binary:
+
+```bash
+cargo build --release --locked && sudo systemctl restart rust_app.service
 ```
 
 Verify the Service Status
