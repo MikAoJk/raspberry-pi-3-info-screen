@@ -100,7 +100,7 @@ Environment="WEATHER_LONGITUDE=8.06137337891726"
 Environment="SLIDESHOW_DIRECTORY=/home/joakim/Bilder/info-screen"
 Environment="SLIDESHOW_INTERVAL_SECONDS=30"
 Environment="GOOGLE_TOKEN_FILE=/home/joakim/.local/state/info-screen/google-oauth-token.json"
-ExecStart=/home/joakim/git/priv/raspberry-pi-3-info-screen/target/release/infoscreeen
+ExecStart=/home/joakim/raspberry-pi-3-info-screen/target/release/infoscreeen
 Restart=on-failure
 
 [Install]
